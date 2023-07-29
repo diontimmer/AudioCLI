@@ -4,6 +4,9 @@ from termcolor import cprint
 import inspect
 import torch
 import traceback
+import sys
+import pkgutil
+import importlib
 
 _REPEAT_ONCE = 1
 _REPEAT_CONT = 2
@@ -66,13 +69,77 @@ class BaseCommandCategory:
             )
 
 
-class InteractiveClient(icli.ArgumentParser):
+class InteractiveClient:
     def __init__(self, *args, **kwargs):
         self.target_data = TargetData()
-        self.output_dir = None  # Store the output directory
-        self.batch_size = 3  # Store the batch size, default is 3
-        self.categories = {}
+        self.output_dir = None
+        self.batch_size = 3
+        self.parser = InteractiveParser(prog="" if len(sys.argv) < 2 else None)
+        self.categories = self.load_categories("modules")
         self.device = self.detect_device()
+        super().__init__(*args, **kwargs)
+
+    def detect_device(self, print=True):
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
+        self.device = device
+        if print:
+            if self.device != "cpu":
+                cprint(
+                    f"Using device {self.device}",
+                    color="green",
+                )
+
+            else:
+                cprint(
+                    "No CUDA/MPS Detected! Using CPU, change using: 'target device <device>'",
+                    color="orange",
+                )
+        return device
+
+    def load_categories(self, package_name):
+        categories = {}
+
+        def load_module(module, sp):
+            # iterate over all objects in the module
+            for obj_name in dir(module):
+                obj = getattr(module, obj_name)
+
+                # check if object is a class and is a subclass of BaseCommandCategory
+                if (
+                    isinstance(obj, type)
+                    and issubclass(obj, BaseCommandCategory)
+                    and obj != BaseCommandCategory
+                ):
+                    instance = obj(
+                        main_parser=sp, client=self
+                    )  # instantiate the class]
+                    categories[obj.__name__] = instance
+
+        def load_package(package, sp):
+            # iterate over all modules and packages in the package
+            for _, module_name, is_pkg in pkgutil.iter_modules(package.__path__):
+                full_name = f"{package.__name__}.{module_name}"
+                if is_pkg:
+                    load_package(importlib.import_module(full_name), sp)
+                else:
+                    load_module(importlib.import_module(full_name), sp)
+
+        sp = self.parser.add_subparsers(
+            dest="_category", metavar="category", help="(<category> -h for more info.)"
+        )
+
+        load_package(importlib.import_module(package_name), sp)
+
+        self.parser.categories = categories
+
+        return categories
+
+
+class InteractiveParser(icli.ArgumentParser):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     def run(self, _category, _command=None, **kwargs):
@@ -105,14 +172,6 @@ class InteractiveClient(icli.ArgumentParser):
                 f"Current target paths: {self.target_data.search_paths} | ({len(self.target_data.file_paths)}) files",
                 color="green",
             )
-
-    def detect_device(self):
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
-        else:
-            device = torch.device("cpu")
-        self.device = device
-        return device
 
     def get_interactive_prompt(self):
         if self.current_section:
