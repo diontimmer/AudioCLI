@@ -43,6 +43,9 @@ def load_file(filename):
 
 
 def save_to_file(paths, audios, srs):
+    paths = [paths] if not isinstance(paths, list) else paths
+    audios = [audios] if not isinstance(audios, list) else audios
+    srs = [srs] if not isinstance(srs, list) else srs
     for save_path, audio, sr in zip(paths, audios, srs):
         if save_path.endswith(".mp3"):
             with AudioFile(save_path, "w", int(sr), num_channels=audio.shape[0]) as f:

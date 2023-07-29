@@ -1,0 +1,6 @@
+torch
+torchaudio
+aeiou
+icli
+pedalboard
+einops

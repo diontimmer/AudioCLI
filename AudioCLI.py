@@ -20,7 +20,7 @@ def load_categories(package_name, client):
                 and issubclass(obj, BaseCommandCategory)
                 and obj != BaseCommandCategory
             ):
-                instance = obj(main_parser=sp, client=client)  # instantiate the class
+                instance = obj(main_parser=sp, client=client)  # instantiate the class]
                 categories[obj.__name__] = instance
 
     def load_package(package, sp):
@@ -32,7 +32,9 @@ def load_categories(package_name, client):
             else:
                 load_module(importlib.import_module(full_name), sp)
 
-    sp = client.add_subparsers(dest="_category", metavar="category", help="Commands")
+    sp = client.add_subparsers(
+        dest="_category", metavar="category", help="(<category> -h for more info.)"
+    )
 
     load_package(importlib.import_module(package_name), sp)
 
@@ -42,15 +44,28 @@ def load_categories(package_name, client):
 def main():
     # get file path
     client = InteractiveClient(prog="" if len(sys.argv) < 2 else None)
-    categories = load_categories("modules", client)
+    if client.device != "cpu":
+        cprint(
+            f"Using device {client.device}",
+            color="green",
+        )
 
-    client.categories = categories
+    else:
+        cprint(
+            "No CUDA/MPS Detected! Using CPU, change using: 'target device <device>'",
+            color="orange",
+        )
+    client.interactive_history_file = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)), ".acli_history"
+    )
+    client.categories = load_categories("modules", client)
+    client.sections = {value.name: [] for key, value in client.categories.items()}
 
     if len(sys.argv) > 1:
         client.launch()
     else:
         cprint(
-            "Welcome to AudioCLI! Augmenting in batch | By Dion Timmer", color="green"
+            "\nWelcome to AudioCLI! Augmenting in batch | By Dion Timmer", color="green"
         )
         cprint("-----------------------------------------------------", color="green")
         cprint(
@@ -61,8 +76,7 @@ def main():
             "Please set your output folder by typing 'target output <path>'. You will be presented the choice to overwrite or rename the files if not set.",
             color="green",
         )
-        cprint("-----------------------------------------------------", color="green")
-        print()
+        cprint("-----------------------------------------------------\n", color="green")
         client.interactive()
 
 

@@ -18,6 +18,7 @@ class TargetCommands(BaseCommandCategory):
             "batch_size": self.batch_size,
             "info": self.info,
             "output": self.output,
+            "device": self.device,
         }
 
     # Define commands
@@ -55,12 +56,13 @@ class TargetCommands(BaseCommandCategory):
         """
         if self.client.target_data.contains_data():
             cprint(
-                f"Loaded paths: {self.client.target_data.search_paths}", color="yellow"
+                f"Loaded paths: {self.client.target_data.search_paths}", color="green"
             )
             cprint(
                 f"Number of audio files: {len(self.client.target_data.file_paths)}",
                 color="green",
             )
+            cprint(f"Batch size: {self.client.batch_size}", color="green")
         else:
             cprint("No target paths have been set.", color="red")
 
@@ -74,3 +76,13 @@ class TargetCommands(BaseCommandCategory):
         self.client.output_dir = path
         cprint(f"Output directory set to {self.output_dir}", color="yellow")
         os.makedirs(self.output_dir, exist_ok=True)
+
+    def device(self, device: str):
+        """
+        Set processing device of the current session.
+
+        Args:
+            device (str): Processing device
+        """
+        self.client.device = device
+        cprint(f"Processing device set to {self.client.device}", color="yellow")
