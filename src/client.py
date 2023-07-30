@@ -75,16 +75,10 @@ class BaseCommandCategory:
 
         # add args for -n and -y
         command_parser.add_argument(
-            "-n",
+            "-o",
             action="store_true",
             default=False,
-            help="Automatically confirm rename.",
-        )
-        command_parser.add_argument(
-            "-y",
-            action="store_true",
-            default=False,
-            help="Automatically confirm overwrite.",
+            help="Overwrite source file.",
         )
 
 
@@ -125,54 +119,31 @@ class InteractiveClient:
         if not self.target_data.contains_data():
             cprint("No data loaded.", color="red")
             return None
-        if self.output_dir is None:
-            if self.overwrite_mode == "y":
-                output_overwrite = True
-            elif self.overwrite_mode == "n":
-                output_overwrite = False
-            else:
-                cprint(
-                    "Warning: An output directory is not set. Running this command will overwrite your files unless you rename them.",
-                    color="red",
-                )
-                confirm = input(
-                    "Type yes / y to continue and overwrite or no / n to rename and keep files in the same folder. You can also type in an output directory to set it.\nType cancel / c to cancel.\nAppend -n or -y to automatically confirm rename or overwrite.\n"
-                )
-                if confirm.lower() in ["c", "cancel"]:
-                    return None
-                if confirm.lower() in ["yes", "y"]:
-                    output_overwrite = True
-                elif confirm.lower() in ["no", "n"]:
-                    output_overwrite = False
-                else:
-                    self.output_dir = confirm
-                    cprint(
-                        f"Output directory set to {self.output_dir}",
-                        color="yellow",
-                    )
-                    os.makedirs(self.output_dir, exist_ok=True)
+        if self.overwrite_mode == "o":
+            output_overwrite = True
         batches = []
         chunked = chunks(self.target_data.file_paths, self.batch_size)
         for fp_batch in chunked:
             save_paths = []
             for file_path in fp_batch:
-                if self.output_dir is None:
-                    save_path = (
-                        file_path
-                        if output_overwrite
-                        else os.path.splitext(file_path)[0]
-                        + id_str
-                        + os.path.splitext(file_path)[1]
-                    )
+                if output_overwrite:
+                    save_path = file_path
                 else:
-                    save_path = os.path.join(
-                        self.output_dir, os.path.basename(file_path)
-                    )
-                    save_path = (
-                        os.path.splitext(save_path)[0]
-                        + id_str
-                        + os.path.splitext(save_path)[1]
-                    )
+                    if self.output_dir is None:
+                        save_path = (
+                            os.path.splitext(file_path)[0]
+                            + id_str
+                            + os.path.splitext(file_path)[1]
+                        )
+                    else:
+                        save_path = os.path.join(
+                            self.output_dir, os.path.basename(file_path)
+                        )
+                        save_path = (
+                            os.path.splitext(save_path)[0]
+                            + id_str
+                            + os.path.splitext(save_path)[1]
+                        )
                 save_paths.append(save_path)
 
             batches.append((fp_batch, save_paths))
@@ -244,12 +215,9 @@ class InteractiveParser(icli.ArgumentParser):
         super().__init__(*args, **kwargs)
 
     def run(self, _category, _command=None, **kwargs):
-        n = kwargs.pop("n", False)
-        y = kwargs.pop("y", False)
-        if n:
-            self.client.overwrite_mode = "n"
-        elif y:
-            self.client.overwrite_mode = "y"
+        o = kwargs.pop("o", False)
+        if o:
+            self.client.overwrite_mode = "o"
         else:
             self.client.overwrite_mode = None
         try:

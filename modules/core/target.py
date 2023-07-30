@@ -26,8 +26,8 @@ class TargetCommands(BaseCommandCategory):
         """
         Set target paths of the current session.
 
-        Args:
-            paths (list): Paths to target
+        Args:\n
+            paths (list): Paths to target\n
         """
         for path in paths:
             if not os.path.exists(path):
@@ -42,8 +42,8 @@ class TargetCommands(BaseCommandCategory):
         """
         Set batch size of the current session.
 
-        Args:
-            size (int): Batch size
+        Args:\n
+            size (int): Batch size\n
         """
         self.client.batch_size = size
         cprint(f"Batch size set to {self.client.batch_size}", color="yellow")
@@ -63,8 +63,8 @@ class TargetCommands(BaseCommandCategory):
         """
         Set output directory of the current session.
 
-        Args:
-            path (str): Output directory
+        Args:\n
+            path (str): Output directory\n
         """
         if path == "clear":
             self.client.output_dir = None
@@ -78,8 +78,8 @@ class TargetCommands(BaseCommandCategory):
         """
         Set processing device of the current session.
 
-        Args:
-            device (str): Processing device
+        Args:\n
+            device (str): Processing device\n
         """
         self.client.device = device
         cprint(f"Processing device set to {self.client.device}", color="green")

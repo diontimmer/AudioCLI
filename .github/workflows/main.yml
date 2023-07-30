@@ -1,4 +1,4 @@
-name: website
+name: docs
 
 # build the documentation whenever there are new commits on main
 on:
@@ -28,7 +28,7 @@ jobs:
       - run: pip install -r requirements.txt
       # ADJUST THIS: build your documentation into docs/.
       # We use a custom build script for pdoc itself, ideally you just run `pdoc -o docs/ ...` here.
-      - run: pdoc modules/ -o docs/ --no-show-source
+      - run: pdoc modules/ -o docs/ --no-show-source 
 
       - uses: actions/upload-pages-artifact@v1
         with:

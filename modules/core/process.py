@@ -9,6 +9,10 @@ from tqdm import tqdm, trange
 import math
 import concurrent.futures
 
+"""
+Process target audio paths with various effects.
+"""
+
 
 class ProcessCommands(BaseCommandCategory):
     """
@@ -37,8 +41,8 @@ class ProcessCommands(BaseCommandCategory):
         """
         Resample all audio files in the current target paths to a new sample rate.
 
-        Args:
-            sample_rate (int): New sample rate
+        Args:\n
+            sample_rate (int): New sample rate\n
         """
         input_batches = self.client.get_save_paths(f"_resampled_{sample_rate}")
 
@@ -64,8 +68,8 @@ class ProcessCommands(BaseCommandCategory):
         """
         Convert all audio files in the current target paths to a new bit depth.
 
-        Args:
-            bit_depth (int): New bit depth
+        Args:\n
+            bit_depth (int): New bit depth\n
         """
 
         if bit_depth not in [8, 16, 24, 32]:
@@ -130,14 +134,15 @@ class ProcessCommands(BaseCommandCategory):
                     tasks = list(zip(*batch))
                     executor.map(mono_batch, tasks)
 
-    def chunk(self, length: float, pad: bool = True):
+    def chunk(self, length: float, pad: bool = True, clean: bool = False):
         """
         Splits all audio files in the current target paths into chunks of a specified length. If the
         last piece does not contain enough audio data, it pads the remaining space with silence.
 
-        Args:
-            length (float): Length of each chunk in seconds
-            pad (bool): If True, pad the last chunk to 'length' with silence if it doesn't contain enough audio data
+        Args:\n
+            length (float): Length of each chunk in seconds\n
+            pad (bool): If True, pad the last chunk to 'length' with silence if it doesn't contain enough audio data\n
+            clean (bool): If True, remove the original file after chunking\n
         """
         length = int(length)
         input_batches = self.client.get_save_paths(f"_chunked_{length}")
@@ -168,6 +173,8 @@ class ProcessCommands(BaseCommandCategory):
             if pad:
                 last_chunk = F.pad(last_chunk, (0, length - last_chunk.shape[1]))
             save_to_file(last_save_path, last_chunk, int(sr))
+            if clean:
+                os.remove(filepath)
 
         if input_batches:
             with concurrent.futures.ThreadPoolExecutor(

@@ -52,7 +52,7 @@ def main():
         )
         cprint("-----------------------------------------------------", color="cyan")
         cprint(
-            "Chain commands together by separating them with a spaced semicolon ( ; ). ie: 'target set <path> ; target output <path>\n(Remember to change output paths inbetween processes when chaining or it will re-target your old files!)'",
+            "Chain commands together by separating them with a spaced semicolon ( ; ). ie: 'target set <path> ; target output <path>\nUse -o to overwrite the source files when processed. ie: 'process resample 44100 -o'",
             color="yellow",
         )
         cprint("Type 'help' to get a list of available categories.", color="yellow")
