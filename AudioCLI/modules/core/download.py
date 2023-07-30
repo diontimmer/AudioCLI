@@ -1,4 +1,4 @@
-from src.client import BaseCommandCategory
+from AudioCLI.src.client import BaseCommandCategory
 from termcolor import cprint
 import os
 

@@ -1,5 +1,5 @@
-from src.client import BaseCommandCategory
-from src.util import chunks, load_file, Stereo, Mono, save_to_file
+from AudioCLI.src.client import BaseCommandCategory
+from AudioCLI.src.util import chunks, load_file, Stereo, Mono, save_to_file
 from termcolor import cprint
 import os
 import torch

@@ -1,4 +1,4 @@
-from src.client import InteractiveClient
+from .src.client import InteractiveClient
 from termcolor import cprint
 import sys
 import os

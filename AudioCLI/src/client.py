@@ -8,7 +8,7 @@ import sys
 import pkgutil
 import importlib
 import os
-from src.util import chunks
+from AudioCLI.src.util import chunks
 import json
 
 _REPEAT_ONCE = 1
@@ -90,7 +90,7 @@ class InteractiveClient:
         self.parser = InteractiveParser(
             prog="" if len(sys.argv) < 2 else None, client=self
         )
-        self.categories = self.load_categories("modules")
+        self.categories = self.load_categories("AudioCLI.modules")
         self.device = self.detect_device()
         self.overwrite_mode = None
         super().__init__(*args, **kwargs)

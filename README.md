@@ -11,4 +11,9 @@ ie:
 target set <path> ; target output <path> ; process resample 44100; process mono -o
 ```
 
+Install with:
+```shell
+pip install git+https://github.com/diontimmer/AudioCLI
+```
+
 Documentation can be found [here](https://diontimmer.github.io/AudioCLI/).

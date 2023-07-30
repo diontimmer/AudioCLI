@@ -152,6 +152,5 @@ cython_debug/
 #.idea/
 
 test/
-h.acli_history
-make_docs.bat
-last_settings.json
+AudioCLI/h.acli_history
+AudioCLI/last_settings.json
