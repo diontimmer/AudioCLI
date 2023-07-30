@@ -107,6 +107,19 @@ class BaseCommandCategory:
                         help=help_text,
                         action=action,
                     )
+        # add args for -target
+        command_parser.add_argument(
+            "-target",
+            nargs="+",
+            default=[],
+            help="Target files or directories.",
+        )
+        command_parser.add_argument(
+            "-output",
+            default="",
+            help="Output directory.",
+        )
+
         if self._can_process():
             # add args for -o
             command_parser.add_argument(
@@ -134,6 +147,12 @@ class InteractiveClient:
         )
         self.categories = self.load_categories("AudioCLI.modules")
         self.device = self.detect_device()
+        self.one_shot_args = {
+            "overwrite_mode": None,
+            "pt_save": False,
+            "target": [],
+            "output": "",
+        }
         self.overwrite_mode = None
         self.pt_save = False
         super().__init__(*args, **kwargs)
@@ -163,7 +182,7 @@ class InteractiveClient:
         if not self.target_data.contains_data():
             cprint("No data loaded.", color="red")
             return None
-        if self.overwrite_mode == "o":
+        if self.one_shot_args["overwrite_mode"] == "o":
             output_overwrite = True
         batches = []
         chunked = chunks(self.target_data.file_paths, self.batch_size)
@@ -259,8 +278,30 @@ class InteractiveParser(icli.ArgumentParser):
         super().__init__(*args, **kwargs)
 
     def run(self, _category, _command=None, **kwargs):
-        self.client.overwrite_mode = "o" if kwargs.pop("o", False) else None
-        self.client.pt_save = kwargs.pop("pt", False)
+        self.client.one_shot_args["overwrite_mode"] = (
+            "o" if kwargs.pop("o", False) else None
+        )
+        self.client.one_shot_args["pt_save"] = kwargs.pop("pt", False)
+        self.client.one_shot_args["target"] = kwargs.pop("target", [])
+        self.client.one_shot_args["output"] = kwargs.pop("output", "")
+        override = (
+            True
+            if self.client.one_shot_args["target"]
+            or self.client.one_shot_args["output"]
+            else False
+        )
+
+        if override:
+            if self.client.one_shot_args["target"]:
+                original_search_paths = self.client.target_data.search_paths
+                self.client.target_data.search_paths = self.client.one_shot_args[
+                    "target"
+                ]
+                self.client.target_data.scan(self.client.one_shot_args["target"])
+            if self.client.one_shot_args["output"]:
+                original_output_dir = self.client.output_dir
+                self.client.output_dir = self.client.one_shot_args["output"]
+
         try:
             for category_name, category in self.client.categories.items():
                 if _category == category.name:
@@ -270,15 +311,25 @@ class InteractiveParser(icli.ArgumentParser):
                             self.client.target_data.search_paths
                         )
                         func(**kwargs)
+                        if override:
+                            if self.client.one_shot_args["target"]:
+                                self.client.target_data.search_paths = (
+                                    original_search_paths
+                                )
+                            if self.client.one_shot_args["output"]:
+                                self.client.output_dir = original_output_dir
+
                         self.client.save_to_settings()
+                        self.client.target_data.scan(
+                            self.client.target_data.search_paths
+                        )
                         if self.client.target_data.contains_data():
-                            self.client.target_data.scan(
-                                self.client.target_data.search_paths
-                            )
                             cprint(
                                 f"Current target paths: {self.client.target_data.search_paths} | ({len(self.client.target_data.file_paths)}) files",
                                 color="green",
                             )
+
+                        self.client.one_shot_args = {}
                         return
                     else:
                         if _command:

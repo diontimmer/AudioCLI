@@ -114,7 +114,10 @@ class ProcessCommands(BaseCommandCategory):
                 aug_tf = T.Resample(int(sr), int(sample_rate))
                 auged = aug_tf(audio)
                 save_to_file(
-                    save_path, auged, int(sample_rate), pt_save=self.client.pt_save
+                    save_path,
+                    auged,
+                    int(sample_rate),
+                    pt_save=self.client.one_shot_args["pt_save"],
                 )
                 prog.update(1)
             except Exception as e:
@@ -147,7 +150,12 @@ class ProcessCommands(BaseCommandCategory):
                 audio.to(self.client.device)
                 aug_tf = PhaseFlipper(p=1.0)
                 auged = aug_tf(audio)
-                save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
+                save_to_file(
+                    save_path,
+                    auged,
+                    int(sr),
+                    pt_save=self.client.one_shot_args["pt_save"],
+                )
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -182,7 +190,12 @@ class ProcessCommands(BaseCommandCategory):
                     auged = signal + float(noise_level) * random.random() * (
                         2 * torch.rand_like(signal) - 1
                     )
-                    save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
+                    save_to_file(
+                        save_path,
+                        auged,
+                        int(sr),
+                        pt_save=self.client.one_shot_args["pt_save"],
+                    )
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -211,7 +224,12 @@ class ProcessCommands(BaseCommandCategory):
                 audio.to(self.client.device)
                 aug_tf = RandPool(p=1.0)
                 auged = aug_tf(audio)
-                save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
+                save_to_file(
+                    save_path,
+                    auged,
+                    int(sr),
+                    pt_save=self.client.one_shot_args["pt_save"],
+                )
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -246,7 +264,12 @@ class ProcessCommands(BaseCommandCategory):
                 aug_tf = T.PitchShift(int(sr), int(pitch))
                 for signal in itaudio:
                     auged = aug_tf(signal)
-                    save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
+                    save_to_file(
+                        save_path,
+                        auged,
+                        int(sr),
+                        pt_save=self.client.one_shot_args["pt_save"],
+                    )
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -285,7 +308,7 @@ class ProcessCommands(BaseCommandCategory):
                     audio,
                     int(sr),
                     bits=bit_depth,
-                    pt_save=self.client.pt_save,
+                    pt_save=self.client.one_shot_args["pt_save"],
                 )
                 prog.update(1)
             except Exception as e:
@@ -315,7 +338,12 @@ class ProcessCommands(BaseCommandCategory):
                 audio.to(self.client.device)
                 aug_tf = Stereo()
                 auged = aug_tf(audio)
-                save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
+                save_to_file(
+                    save_path,
+                    auged,
+                    int(sr),
+                    pt_save=self.client.one_shot_args["pt_save"],
+                )
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -344,7 +372,12 @@ class ProcessCommands(BaseCommandCategory):
                 audio.to(self.client.device)
                 aug_tf = Mono()
                 auged = aug_tf(audio)
-                save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
+                save_to_file(
+                    save_path,
+                    auged,
+                    int(sr),
+                    pt_save=self.client.one_shot_args["pt_save"],
+                )
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -390,7 +423,10 @@ class ProcessCommands(BaseCommandCategory):
                     chunk = audio[:, i * length : (i + 1) * length]
                     chunks.append(chunk)
                     save_to_file(
-                        isave_path, chunk, int(sr), pt_save=self.client.pt_save
+                        isave_path,
+                        chunk,
+                        int(sr),
+                        pt_save=self.client.one_shot_args["pt_save"],
                     )
                     index += 1
 
@@ -403,7 +439,10 @@ class ProcessCommands(BaseCommandCategory):
                 if pad:
                     last_chunk = F.pad(last_chunk, (0, length - last_chunk.shape[1]))
                 save_to_file(
-                    last_save_path, last_chunk, int(sr), pt_save=self.client.pt_save
+                    last_save_path,
+                    last_chunk,
+                    int(sr),
+                    pt_save=self.client.one_shot_args["pt_save"],
                 )
                 if clean:
                     os.remove(filepath)
@@ -451,7 +490,10 @@ class ProcessCommands(BaseCommandCategory):
                 auged = func(audio, save_paths, int(sr))
                 if auged is not None:
                     save_to_file(
-                        save_paths, auged, int(sr), pt_save=self.client.pt_save
+                        save_paths,
+                        auged,
+                        int(sr),
+                        pt_save=self.client.one_shot_args["pt_save"],
                     )
                 prog.update(1)
             except Exception as e:
