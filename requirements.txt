@@ -5,3 +5,4 @@ aeiou
 icli
 pedalboard
 einops
+termcolor
