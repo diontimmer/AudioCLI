@@ -24,6 +24,7 @@ jobs:
           python-version: '3.8'
 
       # ADJUST THIS: install all dependencies (including pdoc)
+      - run: sudo rm -rf docs/
       - run: sudo apt-get install libsndfile1
       - run: pip install -e .
       # ADJUST THIS: build your documentation into docs/.
