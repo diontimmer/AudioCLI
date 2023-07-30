@@ -8,8 +8,9 @@ Appending ```-o``` to a command will overwrite the source files when processed.
 You are also able to chain commands together to create a processing pipeline by separating the commands with a spaced semicolon ( ; ).
 ie: 
 ```shell
-target set <path> ; target output <path> ; process resample 44100; process mono -o
+target set <path> ; target output <path> ; process resample 44100; target set <path> ; process mono -o
 ```
+Sets target folder for files -> sets target output path -> copy all files to output path and resample to 44.1k -> Re-set target path to previous output -> overwrite (-o) as mono
 
 Install with:
 ```shell
