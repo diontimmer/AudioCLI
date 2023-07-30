@@ -20,7 +20,7 @@ def main():
     cprint(f"Loaded {len(client.categories)} categories.", color="yellow")
 
     if len(sys.argv) > 1:
-        client.parser.interactive()
+        client.parser.launch()
     else:
         cprint(
             "\nWelcome to AudioCLI! Augmenting in batch | By Dion Timmer", color="cyan"

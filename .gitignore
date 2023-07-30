@@ -152,5 +152,6 @@ cython_debug/
 #.idea/
 
 test/
+hooks/
 AudioCLI/h.acli_history
 AudioCLI/last_settings.json

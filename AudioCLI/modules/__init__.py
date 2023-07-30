@@ -21,6 +21,16 @@ Install with:
 pip install git+https://github.com/diontimmer/AudioCLI
 ```
 
+Launch with:
+```shell
+audiocli
+```
+
+AudioCLI can also be ran as a CLI tool itself straight from the commandline by pre-prending your usual AudioCLI commands with ```audiocli``` ie:
+```shell
+audiocli process resample 44100
+```
+
 Here you can find all the information you need to use the various commands and functions this tool has.
 Suggestions and bug reports are welcome on the github page.
 Navigate to the core module on the sidebar to get started with the commands this tool has to offer.
