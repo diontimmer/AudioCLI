@@ -6,13 +6,15 @@ import torch
 import torchaudio.transforms as T
 from torch.nn import functional as F
 from tqdm import tqdm, trange
-import math
+import importlib
 import concurrent.futures
 from aeiou.datasets import PhaseFlipper, Mono, Stereo, RandPool
 import random
 
 """
 Process target audio paths with various effects.
+-o can be appended to overwrite the original file.
+-pt can be appended to save as .pt (pytorch) file.
 """
 
 
@@ -40,6 +42,7 @@ class ProcessCommands(BaseCommandCategory):
             "noise": self.noise,
             "pool": self.pool,
             "pitch": self.pitch,
+            "hook": self.hook,
         }
 
     def _audio_to_batched(self, audio):
@@ -57,6 +60,9 @@ class ProcessCommands(BaseCommandCategory):
             desc=text,
             total=sum(min(len(list1), len(list2)) for list1, list2 in input_batches),
         )
+
+    def _can_process(self):
+        return True
 
     # Define commands
     def remove_silent(self, threshold: float = 0.01):
@@ -92,6 +98,8 @@ class ProcessCommands(BaseCommandCategory):
         """
         Resample all audio files in the current target paths to a new sample rate.
 
+        Appending ID: _resampled_{sample_rate}
+
         Args:\n
             sample_rate (int): New sample rate\n
         """
@@ -105,7 +113,9 @@ class ProcessCommands(BaseCommandCategory):
                 audio.to(self.client.device)
                 aug_tf = T.Resample(int(sr), int(sample_rate))
                 auged = aug_tf(audio)
-                save_to_file(save_path, auged, int(sample_rate))
+                save_to_file(
+                    save_path, auged, int(sample_rate), pt_save=self.client.pt_save
+                )
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -124,6 +134,8 @@ class ProcessCommands(BaseCommandCategory):
     def phaseflip(self):
         """
         Flip phase of all audio files in the current target paths.
+
+        Appending ID: _phaseflipped
         """
         input_batches = self.client.get_save_paths(f"_phaseflipped")
         prog = self._get_prog(input_batches, "Phase flipping")
@@ -135,7 +147,7 @@ class ProcessCommands(BaseCommandCategory):
                 audio.to(self.client.device)
                 aug_tf = PhaseFlipper(p=1.0)
                 auged = aug_tf(audio)
-                save_to_file(save_path, auged, int(sr))
+                save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -151,6 +163,8 @@ class ProcessCommands(BaseCommandCategory):
     def noise(self, noise_level: float):
         """
         Add noise to all audio files in the current target paths.
+
+        Appending ID: _noise_{noise_level}
 
         Args:\n
             noise_level (float): Noise level\n
@@ -168,7 +182,7 @@ class ProcessCommands(BaseCommandCategory):
                     auged = signal + float(noise_level) * random.random() * (
                         2 * torch.rand_like(signal) - 1
                     )
-                    save_to_file(save_path, auged, int(sr))
+                    save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -184,6 +198,8 @@ class ProcessCommands(BaseCommandCategory):
     def pool(self):
         """
         Do avgpool operation on audio files in the current target paths, with random-sized kernel.
+
+        Appending ID: _pooled
         """
         input_batches = self.client.get_save_paths(f"_pooled")
         prog = self._get_prog(input_batches, "Pooling")
@@ -195,7 +211,7 @@ class ProcessCommands(BaseCommandCategory):
                 audio.to(self.client.device)
                 aug_tf = RandPool(p=1.0)
                 auged = aug_tf(audio)
-                save_to_file(save_path, auged, int(sr))
+                save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -211,6 +227,8 @@ class ProcessCommands(BaseCommandCategory):
     def pitch(self, pitch: int):
         """
         Change pitch of all audio files in the current target paths to a new pitch.
+
+        Appending ID: _pitched_{pitch}
 
         Args:\n
             pitch (int): New pitch\n
@@ -228,7 +246,7 @@ class ProcessCommands(BaseCommandCategory):
                 aug_tf = T.PitchShift(int(sr), int(pitch))
                 for signal in itaudio:
                     auged = aug_tf(signal)
-                    save_to_file(save_path, auged, int(sr))
+                    save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -242,6 +260,8 @@ class ProcessCommands(BaseCommandCategory):
     def bitdepth(self, bit_depth: int):
         """
         Convert all audio files in the current target paths to a new bit depth.
+
+        Appending ID: _bitdepth_{bit_depth}
 
         Args:\n
             bit_depth (int): New bit depth\n
@@ -260,7 +280,13 @@ class ProcessCommands(BaseCommandCategory):
                 audio, sr = load_file(filepath)
                 audio.to(self.client.device)
                 bit_depth = [int(bit_depth)] * len(filepath)
-                save_to_file(save_path, audio, int(sr), bits=bit_depth)
+                save_to_file(
+                    save_path,
+                    audio,
+                    int(sr),
+                    bits=bit_depth,
+                    pt_save=self.client.pt_save,
+                )
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -276,6 +302,8 @@ class ProcessCommands(BaseCommandCategory):
     def stereo(self):
         """
         Convert all audio files in the current target paths to stereo.
+
+        Appending ID: _stereo
         """
         input_batches = self.client.get_save_paths("_stereo")
         prog = self._get_prog(input_batches, "Converting to stereo")
@@ -287,7 +315,7 @@ class ProcessCommands(BaseCommandCategory):
                 audio.to(self.client.device)
                 aug_tf = Stereo()
                 auged = aug_tf(audio)
-                save_to_file(save_path, auged, int(sr))
+                save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -303,6 +331,8 @@ class ProcessCommands(BaseCommandCategory):
     def mono(self):
         """
         Convert all audio files in the current target paths to mono.
+
+        Appending ID: _mono
         """
         input_batches = self.client.get_save_paths("_mono")
         prog = self._get_prog(input_batches, "Converting to mono")
@@ -314,7 +344,7 @@ class ProcessCommands(BaseCommandCategory):
                 audio.to(self.client.device)
                 aug_tf = Mono()
                 auged = aug_tf(audio)
-                save_to_file(save_path, auged, int(sr))
+                save_to_file(save_path, auged, int(sr), pt_save=self.client.pt_save)
                 prog.update(1)
             except Exception as e:
                 print(e)
@@ -331,6 +361,8 @@ class ProcessCommands(BaseCommandCategory):
         """
         Splits all audio files in the current target paths into chunks of a specified length. If the
         last piece does not contain enough audio data, it pads the remaining space with silence.
+
+        Appending ID: _chunked_{length}
 
         Args:\n
             length (float): Length of each chunk in seconds\n
@@ -357,7 +389,9 @@ class ProcessCommands(BaseCommandCategory):
                     )
                     chunk = audio[:, i * length : (i + 1) * length]
                     chunks.append(chunk)
-                    save_to_file(isave_path, chunk, int(sr))
+                    save_to_file(
+                        isave_path, chunk, int(sr), pt_save=self.client.pt_save
+                    )
                     index += 1
 
                 last_chunk = audio[:, int(n_chunks) * length :]
@@ -368,7 +402,9 @@ class ProcessCommands(BaseCommandCategory):
                 )
                 if pad:
                     last_chunk = F.pad(last_chunk, (0, length - last_chunk.shape[1]))
-                save_to_file(last_save_path, last_chunk, int(sr))
+                save_to_file(
+                    last_save_path, last_chunk, int(sr), pt_save=self.client.pt_save
+                )
                 if clean:
                     os.remove(filepath)
                 prog.update(1)
@@ -382,3 +418,49 @@ class ProcessCommands(BaseCommandCategory):
                 for batch in input_batches:
                     tasks = list(zip(*batch))
                     executor.map(chunk_batch, tasks)
+
+    def hook(self, python_file: str, function: str):
+        """
+        Process audio files using an external function in an external python file.
+        Function will recieve:
+            - A torch.Tensor of shape batch_size x channels x n_samples.
+            - A list of potential save paths for the files in the batch.
+            - The sample rate of the audio files.
+        The function must return a torch.Tensor of shape batch_size x channels x n_samples or None.
+
+        Append ID: _{function}
+
+        Args:\n
+            python_file (str): Path to python file containing function\n
+            function (str): Name of function to use\n
+        """
+        input_batches = self.client.get_save_paths(f"_{function}")
+        prog = self._get_prog(input_batches, f"Processing with function: {function}")
+
+        # Load python file and import function
+        spec = importlib.util.spec_from_file_location("module.name", python_file)
+        foo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(foo)
+        func = getattr(foo, function)
+
+        def hook_batch(args):
+            try:
+                filepaths, save_paths = args
+                audio, sr = load_file(filepaths)
+                audio.to(self.client.device)
+                auged = func(audio, save_paths, int(sr))
+                if auged is not None:
+                    save_to_file(
+                        save_paths, auged, int(sr), pt_save=self.client.pt_save
+                    )
+                prog.update(1)
+            except Exception as e:
+                print(e)
+
+        if input_batches:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=self.client.batch_size
+            ) as executor:
+                for batch in input_batches:
+                    tasks = list(zip(*batch))
+                    executor.map(hook_batch, tasks)

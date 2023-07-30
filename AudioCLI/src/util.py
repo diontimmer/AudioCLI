@@ -3,6 +3,7 @@ import torch
 import torchaudio
 import torch.nn as nn
 import re
+import os
 
 
 def chunks(lst, n):
@@ -23,7 +24,7 @@ def load_file(filename):
     return audio, in_sr
 
 
-def save_to_file(paths, audios, srs, bits=None):
+def save_to_file(paths, audios, srs, bits=None, pt_save=False):
     paths = [paths] if not isinstance(paths, list) else paths
     audios = [audios] if not isinstance(audios, list) else audios
     srs = [srs] if not isinstance(srs, list) else srs
@@ -31,6 +32,10 @@ def save_to_file(paths, audios, srs, bits=None):
     for save_path, audio, sr, bit in zip(paths, audios, srs, bits):
         audio = audio.to("cpu")
         audio = audio.detach()
+        if pt_save:
+            save_path = os.path.splitext(save_path)[0] + ".pt"
+            torch.save(audio, save_path)
+            return
         if save_path.endswith(".mp3"):
             with AudioFile(save_path, "w", int(sr), num_channels=audio.shape[0]) as f:
                 f.write(audio.numpy())

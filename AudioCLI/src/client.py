@@ -40,6 +40,9 @@ class BaseCommandCategory:
             "description": "default",
         }
 
+    def _can_process(self):
+        return False
+
     def _get_commands(self):
         return {}
 
@@ -104,14 +107,21 @@ class BaseCommandCategory:
                         help=help_text,
                         action=action,
                     )
-
-        # add args for -o
-        command_parser.add_argument(
-            "-o",
-            action="store_true",
-            default=False,
-            help="Overwrite source file.",
-        )
+        if self._can_process():
+            # add args for -o
+            command_parser.add_argument(
+                "-o",
+                action="store_true",
+                default=False,
+                help="Overwrite source file.",
+            )
+            # add args for -pt (saving as pytorch file)
+            command_parser.add_argument(
+                "-pt",
+                action="store_true",
+                default=False,
+                help="Save as pytorch file.",
+            )
 
 
 class InteractiveClient:
@@ -125,6 +135,7 @@ class InteractiveClient:
         self.categories = self.load_categories("AudioCLI.modules")
         self.device = self.detect_device()
         self.overwrite_mode = None
+        self.pt_save = False
         super().__init__(*args, **kwargs)
 
     def load_from_settings(self):
@@ -248,11 +259,8 @@ class InteractiveParser(icli.ArgumentParser):
         super().__init__(*args, **kwargs)
 
     def run(self, _category, _command=None, **kwargs):
-        o = kwargs.pop("o", False)
-        if o:
-            self.client.overwrite_mode = "o"
-        else:
-            self.client.overwrite_mode = None
+        self.client.overwrite_mode = "o" if kwargs.pop("o", False) else None
+        self.client.pt_save = kwargs.pop("pt", False)
         try:
             for category_name, category in self.client.categories.items():
                 if _category == category.name:
