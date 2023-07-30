@@ -1,5 +1,7 @@
-from .src.client import InteractiveClient
 from termcolor import cprint
+
+cprint("Loading AudioCLI...", color="yellow")
+from .src.client import InteractiveClient
 import sys
 import os
 

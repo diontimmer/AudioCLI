@@ -5,26 +5,6 @@ import torch.nn as nn
 import re
 
 
-class Mono(nn.Module):
-    def __call__(self, signal):
-        return torch.mean(signal, dim=0) if len(signal.shape) > 1 else signal
-
-
-class Stereo(nn.Module):
-    def __call__(self, signal):
-        signal_shape = signal.shape
-        # Check if it's mono
-        if len(signal_shape) == 1:  # s -> 2, s
-            signal = signal.unsqueeze(0).repeat(2, 1)
-        elif len(signal_shape) == 2:
-            if signal_shape[0] == 1:  # 1, s -> 2, s
-                signal = signal.repeat(2, 1)
-            elif signal_shape[0] > 2:  # ?, s -> 2,s
-                signal = signal[:2, :]
-
-        return signal
-
-
 def chunks(lst, n):
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
@@ -50,6 +30,7 @@ def save_to_file(paths, audios, srs, bits=None):
     bits = [bits] if not isinstance(bits, list) else bits
     for save_path, audio, sr, bit in zip(paths, audios, srs, bits):
         audio = audio.to("cpu")
+        audio = audio.detach()
         if save_path.endswith(".mp3"):
             with AudioFile(save_path, "w", int(sr), num_channels=audio.shape[0]) as f:
                 f.write(audio.numpy())
