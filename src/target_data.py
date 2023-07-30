@@ -16,3 +16,7 @@ class TargetData:
             _, files = fast_scandir(path, [".mp3", ".wav", ".ogg", ".flac"])
             self.file_paths.extend(files)
         return len(self.file_paths)
+
+    def from_settings(self, settings):
+        self.search_paths = settings["search_paths"]
+        self.scan(self.search_paths)

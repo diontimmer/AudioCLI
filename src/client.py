@@ -7,10 +7,15 @@ import traceback
 import sys
 import pkgutil
 import importlib
+import os
+from src.util import chunks
+import json
 
 _REPEAT_ONCE = 1
 _REPEAT_CONT = 2
 _REPEAT_CONT_CLS = 3
+
+FILE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class BaseCommandCategory:
@@ -29,13 +34,13 @@ class BaseCommandCategory:
         for command_name, function in self.get_commands().items():
             self._create_command_parser(command_name, function)
 
-    def get_info(self):
+    def _get_info(self):
         return {
             "name": "default",
             "description": "default",
         }
 
-    def get_commands(self):
+    def _get_commands(self):
         return {}
 
     def _create_command_parser(self, command_name, function):
@@ -68,16 +73,111 @@ class BaseCommandCategory:
                 arg, nargs=nargs, default=default, help=help_text
             )
 
+        # add args for -n and -y
+        command_parser.add_argument(
+            "-n",
+            action="store_true",
+            default=False,
+            help="Automatically confirm rename.",
+        )
+        command_parser.add_argument(
+            "-y",
+            action="store_true",
+            default=False,
+            help="Automatically confirm overwrite.",
+        )
+
 
 class InteractiveClient:
     def __init__(self, *args, **kwargs):
         self.target_data = TargetData()
         self.output_dir = None
         self.batch_size = 3
-        self.parser = InteractiveParser(prog="" if len(sys.argv) < 2 else None)
+        self.parser = InteractiveParser(
+            prog="" if len(sys.argv) < 2 else None, client=self
+        )
         self.categories = self.load_categories("modules")
         self.device = self.detect_device()
+        self.overwrite_mode = None
         super().__init__(*args, **kwargs)
+
+    def load_from_settings(self):
+        json_path = os.path.join(FILE_DIR, "last_settings.json")
+        if os.path.exists(json_path):
+            with open(json_path, "r") as f:
+                settings = json.load(f)
+            self.target_data.from_settings(settings)
+            self.output_dir = settings["output_dir"]
+            self.batch_size = settings["batch_size"]
+            self.device = torch.device(settings["device"])
+            cprint("Loaded settings from last session.", color="green")
+
+    def save_to_settings(self):
+        json_path = os.path.join(FILE_DIR, "last_settings.json")
+        settings = {}
+        settings["search_paths"] = self.target_data.search_paths
+        settings["output_dir"] = self.output_dir
+        settings["batch_size"] = self.batch_size
+        settings["device"] = str(self.device)
+        open(json_path, "w").write(json.dumps(settings, indent=4))
+
+    def get_save_paths(self, id_str):
+        if not self.target_data.contains_data():
+            cprint("No data loaded.", color="red")
+            return None
+        if self.output_dir is None:
+            if self.overwrite_mode == "y":
+                output_overwrite = True
+            elif self.overwrite_mode == "n":
+                output_overwrite = False
+            else:
+                cprint(
+                    "Warning: An output directory is not set. Running this command will overwrite your files unless you rename them.",
+                    color="red",
+                )
+                confirm = input(
+                    "Type yes / y to continue and overwrite or no / n to rename and keep files in the same folder. You can also type in an output directory to set it.\nType cancel / c to cancel.\nAppend -n or -y to automatically confirm rename or overwrite.\n"
+                )
+                if confirm.lower() in ["c", "cancel"]:
+                    return None
+                if confirm.lower() in ["yes", "y"]:
+                    output_overwrite = True
+                elif confirm.lower() in ["no", "n"]:
+                    output_overwrite = False
+                else:
+                    self.output_dir = confirm
+                    cprint(
+                        f"Output directory set to {self.output_dir}",
+                        color="yellow",
+                    )
+                    os.makedirs(self.output_dir, exist_ok=True)
+        batches = []
+        chunked = chunks(self.target_data.file_paths, self.batch_size)
+        for fp_batch in chunked:
+            save_paths = []
+            for file_path in fp_batch:
+                if self.output_dir is None:
+                    save_path = (
+                        file_path
+                        if output_overwrite
+                        else os.path.splitext(file_path)[0]
+                        + id_str
+                        + os.path.splitext(file_path)[1]
+                    )
+                else:
+                    save_path = os.path.join(
+                        self.output_dir, os.path.basename(file_path)
+                    )
+                    save_path = (
+                        os.path.splitext(save_path)[0]
+                        + id_str
+                        + os.path.splitext(save_path)[1]
+                    )
+                save_paths.append(save_path)
+
+            batches.append((fp_batch, save_paths))
+
+        return batches
 
     def detect_device(self, print=True):
         if torch.cuda.is_available():
@@ -140,15 +240,37 @@ class InteractiveClient:
 
 class InteractiveParser(icli.ArgumentParser):
     def __init__(self, *args, **kwargs):
+        self.client = kwargs.pop("client", None)
         super().__init__(*args, **kwargs)
 
     def run(self, _category, _command=None, **kwargs):
+        n = kwargs.pop("n", False)
+        y = kwargs.pop("y", False)
+        if n:
+            self.client.overwrite_mode = "n"
+        elif y:
+            self.client.overwrite_mode = "y"
+        else:
+            self.client.overwrite_mode = None
         try:
-            for category_name, category in self.categories.items():
+            for category_name, category in self.client.categories.items():
                 if _category == category.name:
                     if _command in category.get_commands().keys():
                         func = category.get_commands()[_command]
+                        self.client.target_data.scan(
+                            self.client.target_data.search_paths
+                        )
                         func(**kwargs)
+                        self.client.save_to_settings()
+                        if self.client.target_data.contains_data():
+                            self.client.target_data.scan(
+                                self.client.target_data.search_paths
+                            )
+                            cprint(
+                                f"Current target paths: {self.client.target_data.search_paths} | ({len(self.client.target_data.file_paths)}) files",
+                                color="green",
+                            )
+                        return
                     else:
                         if _command:
                             cprint(
@@ -160,18 +282,10 @@ class InteractiveParser(icli.ArgumentParser):
                                 f"Error: command not specified for category {_category}. Type {_category} -h for more info.",
                                 color="red",
                             )
-                    return
             cprint(f"Error: category {_category} does not exist.", color="red")
         except Exception as e:
             cprint(f"Error: {e}", color="red")
             traceback.print_exc()
-
-        if self.target_data.contains_data():
-            self.target_data.scan(self.target_data.search_paths)
-            cprint(
-                f"Current target paths: {self.target_data.search_paths} | ({len(self.target_data.file_paths)}) files",
-                color="green",
-            )
 
     def get_interactive_prompt(self):
         if self.current_section:

@@ -5,14 +5,14 @@ import os
 
 class TargetCommands(BaseCommandCategory):
     # Set command name and description
-    def get_info(self):
+    def _get_info(self):
         return {
             "name": "target",
             "description": "Set target path options.",
         }
 
     # Declare exposed commands
-    def get_commands(self):
+    def _get_commands(self):
         return {
             "set": self.set,
             "batch_size": self.batch_size,
@@ -37,8 +37,6 @@ class TargetCommands(BaseCommandCategory):
                 )
                 return
         amount = self.client.target_data.scan(paths)
-        cprint(f"Target paths set to {paths}", color="yellow")
-        cprint(f"Found {amount} audio files.", color="green")
 
     def batch_size(self, size: int):
         """
@@ -54,17 +52,12 @@ class TargetCommands(BaseCommandCategory):
         """
         Print information about the current target paths.
         """
-        if self.client.target_data.contains_data():
-            cprint(
-                f"Loaded paths: {self.client.target_data.search_paths}", color="green"
-            )
-            cprint(
-                f"Number of audio files: {len(self.client.target_data.file_paths)}",
-                color="green",
-            )
-            cprint(f"Batch size: {self.client.batch_size}", color="green")
-        else:
+        if not self.client.target_data.contains_data():
             cprint("No target paths have been set.", color="red")
+
+        cprint(f"Batch size: {self.client.batch_size}", color="green")
+        cprint(f"Output directory: {self.client.output_dir}", color="green")
+        cprint(f"Processing device: {self.client.device}", color="green")
 
     def output(self, path: str):
         """
@@ -73,9 +66,13 @@ class TargetCommands(BaseCommandCategory):
         Args:
             path (str): Output directory
         """
+        if path == "clear":
+            self.client.output_dir = None
+            cprint("Output directory cleared.", color="green")
+            return
         self.client.output_dir = path
-        cprint(f"Output directory set to {self.output_dir}", color="yellow")
-        os.makedirs(self.output_dir, exist_ok=True)
+        cprint(f"Output directory set to {self.client.output_dir}", color="green")
+        os.makedirs(self.client.output_dir, exist_ok=True)
 
     def device(self, device: str):
         """
@@ -85,4 +82,4 @@ class TargetCommands(BaseCommandCategory):
             device (str): Processing device
         """
         self.client.device = device
-        cprint(f"Processing device set to {self.client.device}", color="yellow")
+        cprint(f"Processing device set to {self.client.device}", color="green")

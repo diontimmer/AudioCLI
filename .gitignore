@@ -152,5 +152,6 @@ cython_debug/
 #.idea/
 
 test/
-.acli_history
-.saved
+h.acli_history
+make_docs.bat
+last_settings.json

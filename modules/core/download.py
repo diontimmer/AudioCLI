@@ -5,14 +5,14 @@
 
 # class DownloadCommands(BaseCommandCategory):
 #     # Set command name and description
-#     def get_info(self):
+#     def _get_info(self):
 #         return {
 #             "name": "download",
 #             "description": "Various commands for downloading.",
 #         }
 
 #     # Declare exposed commands
-#     def get_commands(self):
+#     def _get_commands(self):
 #         return {
 #             "set": self.set,
 #             "batch_size": self.batch_size,
