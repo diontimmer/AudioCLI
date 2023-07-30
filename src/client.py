@@ -21,8 +21,8 @@ FILE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 class BaseCommandCategory:
     def __init__(self, main_parser, client):
         self.client = client
-        self.name = self.get_info()["name"]
-        self.description = self.get_info()["description"]
+        self.name = self._get_info()["name"]
+        self.description = self._get_info()["description"]
         self.main_parser = main_parser
         self.cat_parser = main_parser.add_parser(self.name, help=self.description)
         self.subparsers = self.cat_parser.add_subparsers(
@@ -31,7 +31,7 @@ class BaseCommandCategory:
             help="(<category> <command> -h for more info.)",
         )
 
-        for command_name, function in self.get_commands().items():
+        for command_name, function in self._get_commands().items():
             self._create_command_parser(command_name, function)
 
     def _get_info(self):
