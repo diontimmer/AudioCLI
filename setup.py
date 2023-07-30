@@ -30,5 +30,6 @@ setup(
         "pedalboard",
         "einops",
         "termcolor",
+        "bs4",
     ],
 )
