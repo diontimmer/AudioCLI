@@ -1,5 +1,20 @@
 r'''
-.. include:: ../README.md
+![AudioCLI](https://www.dropbox.com/s/0yjfnabmh8pbjg1/audiocli.png?raw=1)
+
+AudioCLI is an interactive command line tool for audio processing.
+After setting target path(s), you send commands to process audio files it recursively finds in those paths.
+Appending ```-o``` to a command will overwrite the source files when processed.
+You are also able to chain commands together to create a processing pipeline by separating the commands with a spaced semicolon ( ; ).
+ie: 
+```shell
+target set <path> ; target output <path> ; process resample 44100; process mono -o
+```
+
+Install with:
+```shell
+pip install git+https://github.com/diontimmer/AudioCLI
+```
+
 Here you can find all the information you need to use the various commands and functions this tool has.
 Suggestions and bug reports are welcome on the github page.
 Navigate to the core module on the sidebar to get started with the commands this tool has to offer.
