@@ -2,6 +2,7 @@ from pedalboard.io import AudioFile
 import torch
 import torchaudio
 import torch.nn as nn
+import re
 
 
 class Mono(nn.Module):
@@ -42,7 +43,7 @@ def load_file(filename):
     return audio, in_sr
 
 
-def save_to_file(paths, audios, srs, bits):
+def save_to_file(paths, audios, srs, bits=None):
     paths = [paths] if not isinstance(paths, list) else paths
     audios = [audios] if not isinstance(audios, list) else audios
     srs = [srs] if not isinstance(srs, list) else srs
@@ -55,4 +56,37 @@ def save_to_file(paths, audios, srs, bits):
         else:
             if len(audio.shape) == 1:
                 audio = audio.unsqueeze(0)
-            torchaudio.save(save_path, audio, sr, bits_per_sample=bit)
+            if bit:
+                torchaudio.save(save_path, audio, sr, bits_per_sample=bit)
+            else:
+                torchaudio.save(save_path, audio, sr)
+
+
+def extract_arg_help(arg, docstring):
+    """
+    Given an argument name and a docstring, try to extract a helpful
+    message for the argument from the docstring.
+
+    Parameters:
+        arg (str): the name of the argument
+        docstring (str): the docstring to extract the message from
+
+    Returns:
+        str: a helpful message, or a default message if none could be found.
+    """
+    if docstring is None:
+        return "No help text available"
+
+    args_section_match = re.search(r"Args:(.*)", docstring, re.DOTALL)
+    if not args_section_match:
+        return "No help text available"
+
+    args_section = args_section_match.group(1)
+    for line in args_section.split("\n"):
+        arg_match = re.match(r"\s*" + arg + r"\s*\((.*?)\):\s*(.*)", line)
+        if arg_match:
+            # Return the rest of the line, after the argument type
+            return arg_match.group(2)
+
+    # If we've got here, we couldn't find a helpful message for this argument
+    return "No help text available"

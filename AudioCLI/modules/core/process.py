@@ -47,11 +47,15 @@ class ProcessCommands(BaseCommandCategory):
         input_batches = self.client.get_save_paths(f"_resampled_{sample_rate}")
 
         def resample_batch(args):
-            filepath, save_path, _ = args
-            audio, sr = load_file(filepath)
-            aug_tf = T.Resample(int(sr), int(sample_rate))
-            auged = aug_tf(audio)
-            save_to_file(save_path, auged, int(sample_rate))
+            try:
+                filepath, save_path, _ = args
+                audio, sr, bit = load_file(filepath)
+                aug_tf = T.Resample(int(sr), int(sample_rate))
+                auged = aug_tf(audio)
+                print("saving")
+                save_to_file(save_path, auged, int(sample_rate))
+            except Exception as e:
+                print(e)
 
         if input_batches:
             with concurrent.futures.ThreadPoolExecutor(
@@ -79,10 +83,13 @@ class ProcessCommands(BaseCommandCategory):
         input_batches = self.client.get_save_paths(f"_bitdepth_{bit_depth}")
 
         def bitdepth_batch(args):
-            filepath, save_path = args
-            audio, sr = load_file(filepath)
-            bit_depth = [int(bit_depth)] * len(filepath)
-            save_to_file(save_path, audio, int(sr), bits=bit_depth)
+            try:
+                filepath, save_path = args
+                audio, sr = load_file(filepath)
+                bit_depth = [int(bit_depth)] * len(filepath)
+                save_to_file(save_path, audio, int(sr), bits=bit_depth)
+            except Exception as e:
+                print(e)
 
         if input_batches:
             with concurrent.futures.ThreadPoolExecutor(
@@ -99,11 +106,14 @@ class ProcessCommands(BaseCommandCategory):
         input_batches = self.client.get_save_paths("_stereo")
 
         def stereo_batch(args):
-            filepath, save_path = args
-            audio, sr = load_file(filepath)
-            aug_tf = Stereo()
-            auged = aug_tf(audio)
-            save_to_file(save_path, auged, int(sr))
+            try:
+                filepath, save_path = args
+                audio, sr = load_file(filepath)
+                aug_tf = Stereo()
+                auged = aug_tf(audio)
+                save_to_file(save_path, auged, int(sr))
+            except Exception as e:
+                print(e)
 
         if input_batches:
             with concurrent.futures.ThreadPoolExecutor(
@@ -120,11 +130,14 @@ class ProcessCommands(BaseCommandCategory):
         input_batches = self.client.get_save_paths("_mono")
 
         def mono_batch(args):
-            filepath, save_path = args
-            audio, sr = load_file(filepath)
-            aug_tf = Mono()
-            auged = aug_tf(audio)
-            save_to_file(save_path, auged, int(sr))
+            try:
+                filepath, save_path = args
+                audio, sr = load_file(filepath)
+                aug_tf = Mono()
+                auged = aug_tf(audio)
+                save_to_file(save_path, auged, int(sr))
+            except Exception as e:
+                print(e)
 
         if input_batches:
             with concurrent.futures.ThreadPoolExecutor(
@@ -148,33 +161,36 @@ class ProcessCommands(BaseCommandCategory):
         input_batches = self.client.get_save_paths(f"_chunked_{length}")
 
         def chunk_batch(args):
-            filepath, save_path = args
-            audio, sr = load_file(filepath)
-            n_chunks = audio.shape[1] / length
-            chunks = []
-            index = 1
-            for i in range(0, int(n_chunks)):
-                isave_path = (
+            try:
+                filepath, save_path = args
+                audio, sr = load_file(filepath)
+                n_chunks = audio.shape[1] / length
+                chunks = []
+                index = 1
+                for i in range(0, int(n_chunks)):
+                    isave_path = (
+                        os.path.splitext(save_path)[0]
+                        + f"_{index}"
+                        + os.path.splitext(save_path)[1]
+                    )
+                    chunk = audio[:, i * length : (i + 1) * length]
+                    chunks.append(chunk)
+                    save_to_file(isave_path, chunk, int(sr))
+                    index += 1
+
+                last_chunk = audio[:, int(n_chunks) * length :]
+                last_save_path = (
                     os.path.splitext(save_path)[0]
                     + f"_{index}"
                     + os.path.splitext(save_path)[1]
                 )
-                chunk = audio[:, i * length : (i + 1) * length]
-                chunks.append(chunk)
-                save_to_file(isave_path, chunk, int(sr))
-                index += 1
-
-            last_chunk = audio[:, int(n_chunks) * length :]
-            last_save_path = (
-                os.path.splitext(save_path)[0]
-                + f"_{index}"
-                + os.path.splitext(save_path)[1]
-            )
-            if pad:
-                last_chunk = F.pad(last_chunk, (0, length - last_chunk.shape[1]))
-            save_to_file(last_save_path, last_chunk, int(sr))
-            if clean:
-                os.remove(filepath)
+                if pad:
+                    last_chunk = F.pad(last_chunk, (0, length - last_chunk.shape[1]))
+                save_to_file(last_save_path, last_chunk, int(sr))
+                if clean:
+                    os.remove(filepath)
+            except Exception as e:
+                print(e)
 
         if input_batches:
             with concurrent.futures.ThreadPoolExecutor(

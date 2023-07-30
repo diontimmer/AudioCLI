@@ -15,7 +15,7 @@ def main():
         value.name: [] for key, value in client.categories.items()
     }
 
-    cprint(f"Loaded {len(client.categories)} categories.", color="green")
+    cprint(f"Loaded {len(client.categories)} categories.", color="yellow")
 
     if len(sys.argv) > 1:
         client.parser.interactive()

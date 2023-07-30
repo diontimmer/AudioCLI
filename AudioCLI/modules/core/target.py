@@ -1,4 +1,5 @@
 from AudioCLI.src.client import BaseCommandCategory
+from AudioCLI.src.target_data import TargetData
 from termcolor import cprint
 import os
 
@@ -15,6 +16,7 @@ class TargetCommands(BaseCommandCategory):
     def _get_commands(self):
         return {
             "set": self.set,
+            "clear": self.clear,
             "batch_size": self.batch_size,
             "info": self.info,
             "output": self.output,
@@ -22,13 +24,18 @@ class TargetCommands(BaseCommandCategory):
         }
 
     # Define commands
-    def set(self, paths: list):
+    def set(self, paths: list, recursive: bool = True):
         """
         Set target paths of the current session.
 
         Args:\n
             paths (list): Paths to target\n
+            recursive (bool): Whether to recursively scan directories\n
         """
+        if recursive:  # if recursive
+            cprint("Recursively scanning directories.", color="yellow")
+        else:
+            cprint("Scanning directories.", color="yellow")
         for path in paths:
             if not os.path.exists(path):
                 cprint(
@@ -36,7 +43,14 @@ class TargetCommands(BaseCommandCategory):
                     color="red",
                 )
                 return
-        amount = self.client.target_data.scan(paths)
+        amount = self.client.target_data.scan(paths, recursive=recursive)
+
+    def clear(self):
+        """
+        Clear target paths of the current session.
+        """
+        self.client.target_data = TargetData()
+        cprint("Target paths cleared.", color="green")
 
     def batch_size(self, size: int):
         """

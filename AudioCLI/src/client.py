@@ -8,7 +8,7 @@ import sys
 import pkgutil
 import importlib
 import os
-from AudioCLI.src.util import chunks
+from AudioCLI.src.util import chunks, extract_arg_help
 import json
 
 _REPEAT_ONCE = 1
@@ -62,18 +62,50 @@ class BaseCommandCategory:
             # skip if arg is self
             if arg == "self":
                 continue
+
             default = defaults.get(arg, None)
             type = args.annotations.get(arg, None)
-            help_text = (
-                type.__doc__ if type and type.__doc__ else "No help text available"
-            )
-            nargs = "+" if type == list else None
-            arg = f"--{arg.replace('_', '-')}" if default else arg
-            command_parser.add_argument(
-                arg, nargs=nargs, default=default, help=help_text
-            )
+            help_text = extract_arg_help(arg, function.__doc__)
 
-        # add args for -n and -y
+            if type == bool:
+                if default is None:  # Required argument
+                    default = False
+                    action = "store_true"
+                else:
+                    default = bool(default)  # Ensure default is a boolean
+                    action = "store_true" if not default else "store_false"
+
+                arg_key = f"--{arg.replace('_', '-')}"
+
+                command_parser.add_argument(
+                    arg_key,
+                    default=default,
+                    help=help_text,
+                    action=action,
+                )
+
+            else:
+                nargs = "+" if type == list else None
+                action = "store"
+
+                if default is None:  # If no default value, create a positional argument
+                    command_parser.add_argument(
+                        arg,
+                        nargs=nargs,
+                        help=help_text,
+                        action=action,
+                    )
+                else:  # If a default value exists, create an optional argument
+                    arg_key = f"--{arg.replace('_', '-')}"
+                    command_parser.add_argument(
+                        arg_key,
+                        nargs=nargs,
+                        default=default,
+                        help=help_text,
+                        action=action,
+                    )
+
+        # add args for -o
         command_parser.add_argument(
             "-o",
             action="store_true",
@@ -116,6 +148,7 @@ class InteractiveClient:
         open(json_path, "w").write(json.dumps(settings, indent=4))
 
     def get_save_paths(self, id_str):
+        output_overwrite = False
         if not self.target_data.contains_data():
             cprint("No data loaded.", color="red")
             return None
@@ -223,8 +256,8 @@ class InteractiveParser(icli.ArgumentParser):
         try:
             for category_name, category in self.client.categories.items():
                 if _category == category.name:
-                    if _command in category.get_commands().keys():
-                        func = category.get_commands()[_command]
+                    if _command in category._get_commands().keys():
+                        func = category._get_commands()[_command]
                         self.client.target_data.scan(
                             self.client.target_data.search_paths
                         )
@@ -261,6 +294,13 @@ class InteractiveParser(icli.ArgumentParser):
         else:
             ps = "AudioCLI> "
         return ps
+
+    def _print_message(self, message, file=None):
+        if message:
+            try:
+                cprint(message, color="yellow")
+            except (AttributeError, OSError):
+                pass
 
     def interactive(self, stream=None):
         import readline
