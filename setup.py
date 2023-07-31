@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="AudioCLI",
-    version="0.1",
+    version="0.2",
     packages=find_packages(),
     url="https://github.com/diontimmer/AudioCLI",
     author="Dion Timmer",
@@ -31,5 +31,6 @@ setup(
         "einops",
         "termcolor",
         "bs4",
+        "readline",
     ],
 )
