@@ -32,3 +32,17 @@ audiocli process resample 44100
 ```
 
 Documentation can be found [here](https://diontimmer.github.io/AudioCLI/).
+
+Some of the functions include:
+- Resampling.
+- Pitching.
+- Chunking to specific length.
+- Remove files under silence threshold.
+- Batch change bitrate.
+- Multithreaded processing.
+- Multiformat support.
+- Export as .pt (pytorch) files.
+- Run commands from .acli file. (process file ./acli_file.acli)
+- Command chaining.
+- Custom function hook support. (process hook {file} {function})
+- Scrape open HTTP directory for audio files.

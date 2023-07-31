@@ -506,3 +506,13 @@ class ProcessCommands(BaseCommandCategory):
                 for batch in input_batches:
                     tasks = list(zip(*batch))
                     executor.map(hook_batch, tasks)
+
+    def file(self, acli_file: str):
+        """
+        Run acli commands from a file in batch.
+
+        Args:\n
+            acli_file (str): Path to .acli file.\n
+        """
+        with open(acli_file, "r") as f:
+            self.client.batch(f)
