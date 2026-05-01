@@ -28,7 +28,7 @@ from threading import Event
 from typing import Any
 
 from audiocli.errors import AudioCLIError, OpError
-from audiocli.io import load, save
+from audiocli.io import extension_for_format, load, save
 from audiocli.registry import Op
 
 
@@ -195,6 +195,10 @@ def run_one(
     want one file don't have to build a list. Re-raises the underlying
     error (``LoadError`` / ``SaveError`` / ``OpError``) when the single
     file fails — keeping the v1 contract intact.
+
+    If the op returns a buffer with a ``format`` field set (e.g. ``convert``),
+    the destination's extension is rewritten to match — so a ``.wav`` source
+    converted to FLAC lands as ``.flac`` on disk.
     """
     report = run_per_file([path], op, params, output=output, workers=1)
     result = report.results[0]
@@ -221,7 +225,15 @@ def _run_one_safe(
         except Exception as e:
             raise OpError(f"op '{op.name}' failed on {src}: {e}") from e
         dst = _resolve_output(src, output, op.name)
-        save(dst, out_buf, subtype=out_buf.subtype)
+        if out_buf.format is not None:
+            dst = dst.with_suffix(extension_for_format(out_buf.format))
+        save(
+            dst,
+            out_buf,
+            subtype=out_buf.subtype,
+            format=out_buf.format,
+            quality=out_buf.quality,
+        )
         return Result(path=dst, ok=True, error=None)
     except AudioCLIError as e:
         return Result(path=src, ok=False, error=str(e))
