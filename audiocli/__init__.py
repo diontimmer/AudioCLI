@@ -112,4 +112,4 @@ __all__ = [
     "run_one",
     "run_per_file",
 ]
-__version__ = "2.0.0a0"
+__version__ = "2.0.0"
