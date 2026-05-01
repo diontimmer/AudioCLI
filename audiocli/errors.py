@@ -17,3 +17,12 @@ class SaveError(AudioCLIError):
 
 class OpError(AudioCLIError):
     """Raised when an op fails on a given buffer."""
+
+
+class PluginError(AudioCLIError):
+    """Raised when a third-party plugin fails to register.
+
+    Surfaced at startup (during entry-point discovery), not at op-invocation
+    time, so plugin authors find signature or import errors as soon as the
+    user runs ``audiocli``.
+    """

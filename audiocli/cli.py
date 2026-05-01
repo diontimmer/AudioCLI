@@ -154,8 +154,35 @@ def _load_ops() -> None:
         importlib.import_module(f"audiocli.ops.{m.name}")
 
 
+def _load_plugins() -> None:
+    """Discover third-party plugin ops via the ``audiocli.ops`` entry-point group.
+
+    First-party ops are loaded first; on a name conflict, the first-party op
+    wins and the conflict is logged once to stderr. Malformed plugin
+    signatures or import failures raise :class:`PluginError`, which we
+    surface as a clean non-zero CLI exit so the user sees the offending
+    plugin name instead of a traceback.
+    """
+    from audiocli.errors import PluginError  # noqa: PLC0415
+    from audiocli.plugins import load_plugins  # noqa: PLC0415
+
+    try:
+        _, conflicts = load_plugins()
+    except PluginError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    for c in conflicts:
+        typer.echo(
+            f"warning: plugin {c.plugin_dist!r} op {c.name!r} "
+            f"({c.plugin_target}) shadowed by first-party op; plugin op ignored.",
+            err=True,
+        )
+
+
 def _register_commands() -> None:
     _load_ops()
+    _load_plugins()
     for op_obj in all_ops().values():
         cmd = _make_command(op_obj)
         app.command(name=op_obj.name, help=op_obj.help)(cmd)
