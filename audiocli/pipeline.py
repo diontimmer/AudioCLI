@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from audiocli.errors import OpError
-from audiocli.io import load, save
+from audiocli.io import extension_for_format, load, save
 from audiocli.registry import Op
 
 
@@ -29,6 +29,10 @@ def run_one(
       - non-existing path with no suffix → treated as a directory; created.
       - non-existing path with a suffix → treated as a file path.
 
+    If the op returns a buffer with a ``format`` field set (e.g. ``convert``),
+    the destination's extension is rewritten to match — so a ``.wav`` source
+    converted to FLAC lands as ``.flac`` on disk.
+
     Returns the path written. Re-raises `LoadError`/`SaveError` from I/O,
     wraps any op-thrown exception as `OpError`.
     """
@@ -41,7 +45,9 @@ def run_one(
         raise OpError(f"op '{op.name}' failed on {src}: {e}") from e
 
     dst = _resolve_output(src, Path(output) if output is not None else None, op.name)
-    save(dst, out_buf, subtype=out_buf.subtype)
+    if out_buf.format is not None:
+        dst = dst.with_suffix(extension_for_format(out_buf.format))
+    save(dst, out_buf, subtype=out_buf.subtype, format=out_buf.format, quality=out_buf.quality)
     return dst
 
 
