@@ -201,8 +201,178 @@ def _register_shell() -> None:
     shell_command(app)
 
 
+def _register_hook() -> None:
+    """Register the ``hook`` Typer command — Python escape-hatch op runner.
+
+    ``hook`` accepts arbitrary ``--key=value`` flags and forwards them to
+    the user's function as kwargs, so we configure Typer's context to
+    allow extra args and ignore unknown options. Heavy modules (importlib
+    is stdlib but the user's script might pull in numpy/torch) only load
+    inside ``_hook`` itself.
+    """
+
+    @app.command(
+        "hook",
+        help=(
+            "Run a one-off Python transform from a script file. "
+            "The script must define a function (default 'transform'/'process'/'main') "
+            "with signature (buf: AudioBuffer, **kwargs) -> AudioBuffer."
+        ),
+        context_settings={
+            "allow_extra_args": True,
+            "ignore_unknown_options": True,
+        },
+    )
+    def _hook(
+        ctx: typer.Context,
+        script: Annotated[
+            Path,
+            typer.Argument(
+                help="Path to a Python file with the user's transform.",
+                exists=True,
+                readable=True,
+            ),
+        ],
+        target: Annotated[
+            list[Path],
+            typer.Option(
+                "--target",
+                help="Input audio file(s) or directory. Repeat to pass multiple.",
+                exists=True,
+                readable=True,
+            ),
+        ],
+        output: Annotated[
+            Path | None,
+            typer.Option("--output", help="Output file or directory."),
+        ] = None,
+        func: Annotated[
+            str | None,
+            typer.Option(
+                "--func",
+                help=(
+                    "Function name to invoke. Defaults to the first of "
+                    "transform/process/main found in the script."
+                ),
+            ),
+        ] = None,
+        workers: Annotated[
+            int,
+            typer.Option(
+                "--workers",
+                help="Worker thread count. 0 → min(8, cpu_count()).",
+                min=0,
+            ),
+        ] = 0,
+        recursive: Annotated[
+            bool,
+            typer.Option(
+                "--recursive/--no-recursive",
+                help="Recurse into directories when scanning targets.",
+            ),
+        ] = True,
+    ) -> None:
+        from audiocli.errors import AudioCLIError  # noqa: PLC0415
+        from audiocli.hook import (  # noqa: PLC0415
+            load_hook_function,
+            make_hook_op,
+            parse_extra_kwargs,
+        )
+        from audiocli.pipeline import run_per_file  # noqa: PLC0415
+        from audiocli.scanner import scan_targets  # noqa: PLC0415
+
+        try:
+            user_kwargs = parse_extra_kwargs(list(ctx.args))
+            user_func = load_hook_function(script, func)
+            op_obj = make_hook_op(user_func, script)
+            files = scan_targets(target, recursive=recursive)
+        except AudioCLIError as e:
+            typer.echo(f"error: {e}", err=True)
+            raise typer.Exit(code=1) from e
+
+        if not files:
+            typer.echo("error: no audio files matched the targets", err=True)
+            raise typer.Exit(code=1)
+
+        try:
+            report = run_per_file(
+                files,
+                op_obj,
+                user_kwargs,
+                output=output,
+                workers=workers if workers > 0 else None,
+            )
+        except AudioCLIError as e:
+            typer.echo(f"error: {e}", err=True)
+            raise typer.Exit(code=1) from e
+
+        for r in report.results:
+            if r.ok:
+                typer.echo(str(r.path))
+            else:
+                typer.echo(f"FAIL {r.path}: {r.error}", err=True)
+
+        typer.echo(
+            f"done: {report.ok_count} ok, {report.failed_count} failed in {report.duration_s:.2f}s",
+            err=True,
+        )
+
+        if report.failed_count > 0:
+            raise typer.Exit(code=report.exit_code)
+
+
+def _register_run_script() -> None:
+    """Register the ``run-script`` Typer command — ``.acli`` batch runner."""
+
+    @app.command(
+        "run-script",
+        help="Execute a .acli file: one CLI command per line, '#' for comments.",
+    )
+    def _run_script(
+        path: Annotated[
+            Path,
+            typer.Argument(
+                help="Path to a .acli script file.",
+                exists=True,
+                readable=True,
+            ),
+        ],
+        strict: Annotated[
+            bool,
+            typer.Option(
+                "--strict/--no-strict",
+                help="Abort on the first failing line instead of running every line.",
+            ),
+        ] = False,
+    ) -> None:
+        from audiocli.errors import AudioCLIError  # noqa: PLC0415
+        from audiocli.run_script import run_script as _exec_script  # noqa: PLC0415
+
+        try:
+            report = _exec_script(app, path, strict=strict)
+        except AudioCLIError as e:
+            typer.echo(f"error: {e}", err=True)
+            raise typer.Exit(code=1) from e
+
+        for r in report.results:
+            if r.ok:
+                typer.echo(f"line {r.lineno}: ok  | {r.command}")
+            else:
+                typer.echo(f"line {r.lineno}: FAIL | {r.command}: {r.error}", err=True)
+
+        typer.echo(
+            f"done: {report.ok_count} ok, {report.failed_count} failed",
+            err=True,
+        )
+
+        if report.failed_count > 0:
+            raise typer.Exit(code=report.exit_code)
+
+
 _register_commands()
 _register_shell()
+_register_hook()
+_register_run_script()
 
 
 def main() -> None:  # pragma: no cover
