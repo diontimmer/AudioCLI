@@ -22,12 +22,20 @@ Third-party packages register ops via Python entry-points::
 """
 
 from audiocli.buffer import AudioBuffer
-from audiocli.errors import AudioCLIError, LoadError, OpError, PluginError, SaveError
+from audiocli.errors import (
+    AudioCLIError,
+    ConfigError,
+    LoadError,
+    OpError,
+    PluginError,
+    SaveError,
+)
 from audiocli.registry import Op, op
 
 __all__ = [
     "AudioBuffer",
     "AudioCLIError",
+    "ConfigError",
     "LoadError",
     "Op",
     "OpError",
