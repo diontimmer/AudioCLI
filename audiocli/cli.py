@@ -319,8 +319,23 @@ def _register_shell() -> None:
     shell_command(app)
 
 
+def _register_special() -> None:
+    """Register the first-party special-case commands on the Typer app.
+
+    ``info``, ``remove-silent``, and ``chunk`` don't fit the standard
+    ``(buf) -> buf`` filter contract that registered ops use, so they are
+    registered as direct Typer commands. The implementation lives in
+    :mod:`audiocli.special`; numpy / pyloudnorm imports there are deferred
+    so ``audiocli --help`` stays under its 120 ms budget.
+    """
+    from audiocli.special import register_special_commands  # noqa: PLC0415
+
+    register_special_commands(app)
+
+
 _register_commands()
 _register_shell()
+_register_special()
 
 
 def main() -> None:  # pragma: no cover
