@@ -26,3 +26,12 @@ class PluginError(AudioCLIError):
     time, so plugin authors find signature or import errors as soon as the
     user runs ``audiocli``.
     """
+
+
+class ConfigError(AudioCLIError):
+    """Raised when persisted settings cannot be parsed or migrated.
+
+    Covers malformed JSON, missing required fields, and unknown ``schema``
+    versions. The CLI surfaces this with the offending file path so users
+    know which file to delete or fix.
+    """

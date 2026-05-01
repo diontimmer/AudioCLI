@@ -11,6 +11,7 @@ shouldn't be blocked by it).
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -42,7 +43,20 @@ def _audiocli_cmd() -> list[str]:
     return [sys.executable, "-m", "audiocli.cli"]
 
 
-def _run_shell(stdin: str, history: Path, cwd: Path | None = None) -> subprocess.CompletedProcess:
+def _run_shell(
+    stdin: str,
+    history: Path,
+    cwd: Path | None = None,
+    settings: Path | None = None,
+) -> subprocess.CompletedProcess:
+    env = os.environ.copy()
+    # Isolate the test from the developer's real settings file by
+    # default; individual tests can override via the ``settings`` arg.
+    if settings is not None:
+        env["AUDIOCLI_SETTINGS_FILE"] = str(settings)
+    else:
+        env["AUDIOCLI_SETTINGS_FILE"] = str(history.parent / "settings.json")
+    env["AUDIOCLI_HISTORY_FILE"] = str(history)
     return subprocess.run(
         [*_audiocli_cmd(), "shell", "--history", str(history)],
         input=stdin,
@@ -50,6 +64,7 @@ def _run_shell(stdin: str, history: Path, cwd: Path | None = None) -> subprocess
         text=True,
         timeout=30,
         cwd=cwd,
+        env=env,
     )
 
 
@@ -181,6 +196,81 @@ def test_shell_quit_quits_cleanly(tmp_path):
     history = tmp_path / "history"
     result = _run_shell("quit\n", history)
     assert result.returncode == 0, result.stderr
+
+
+def test_shell_set_persists_across_sessions(tmp_path):
+    """`set workers 4` in session 1 is reflected by `show` in session 2."""
+    history = tmp_path / "history"
+    settings = tmp_path / "settings.json"
+
+    first = _run_shell("set workers 4\nexit\n", history, settings=settings)
+    assert first.returncode == 0, first.stderr
+    assert settings.exists()
+
+    second = _run_shell("show\nexit\n", history, settings=settings)
+    assert second.returncode == 0, second.stderr
+    assert "workers:    4" in second.stdout, second.stdout
+
+
+def test_shell_set_targets_persists(tmp_path):
+    src = tmp_path / "src.wav"
+    _make_test_wav(src)
+    history = tmp_path / "history"
+    settings = tmp_path / "settings.json"
+
+    first = _run_shell(f"set targets {src}\nexit\n", history, settings=settings)
+    assert first.returncode == 0, first.stderr
+
+    # session 2: targets should be preloaded so `gain --output ... --db 0`
+    # works without an explicit --target.
+    out = tmp_path / "out.wav"
+    second = _run_shell(
+        f"gain --output {out} --db 0\nexit\n",
+        history,
+        settings=settings,
+    )
+    assert second.returncode == 0, second.stderr + second.stdout
+    assert out.exists()
+
+
+def test_shell_show_prints_settings(tmp_path):
+    history = tmp_path / "history"
+    settings = tmp_path / "settings.json"
+    result = _run_shell("show\nexit\n", history, settings=settings)
+    assert result.returncode == 0, result.stderr
+    assert "workers:" in result.stdout
+    assert "recursive:" in result.stdout
+
+
+def test_shell_set_unknown_key_warns_but_keeps_repl_alive(tmp_path):
+    history = tmp_path / "history"
+    settings = tmp_path / "settings.json"
+    result = _run_shell("set bogus 1\nshow\nexit\n", history, settings=settings)
+    assert result.returncode == 0, result.stderr
+    assert "unknown key" in result.stderr.lower() or "error" in result.stderr.lower()
+
+
+def test_shell_explicit_flag_overrides_persisted(tmp_path):
+    """An explicit --workers on the line wins over persisted value."""
+    src = tmp_path / "src.wav"
+    out = tmp_path / "out.wav"
+    _make_test_wav(src)
+    history = tmp_path / "history"
+    settings = tmp_path / "settings.json"
+
+    # Persist workers=4
+    pre = _run_shell("set workers 4\nexit\n", history, settings=settings)
+    assert pre.returncode == 0
+
+    # Explicit --workers 1 should be accepted (i.e. not duplicated by
+    # the settings-defaults injector).
+    result = _run_shell(
+        f"gain --target {src} --output {out} --workers 1 --db 0\nexit\n",
+        history,
+        settings=settings,
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert out.exists()
 
 
 def test_shell_bad_command_does_not_kill_repl(tmp_path):
