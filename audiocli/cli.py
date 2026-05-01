@@ -30,6 +30,96 @@ def _root() -> None:
     """Forces Typer into subcommand mode even when only one op is registered."""
 
 
+def _emit_fatal_error(json_mode: bool, message: str) -> None:
+    """Surface a top-level error before/around the pipeline run.
+
+    In ``--json`` mode we still produce parseable output: a single
+    ``error`` event plus a terminating ``done`` event with no successes
+    so subscribers can drive their state machines uniformly. In default
+    mode we fall back to the human-readable ``error: ...`` line.
+    """
+    if json_mode:
+        import json as _json  # noqa: PLC0415
+
+        typer.echo(_json.dumps({"type": "error", "file": None, "reason": message}))
+        typer.echo(_json.dumps({"type": "done", "ok": 0, "failed": 0, "duration_s": 0.0}))
+    else:
+        typer.echo(f"error: {message}", err=True)
+
+
+def _make_event_subscriber(json_mode: bool):
+    """Build the ``on_event`` callback and a ``finalize()`` cleanup pair.
+
+    - ``json_mode=True`` → callback prints one JSON object per line on
+      stdout. ``finalize`` is a noop.
+    - Otherwise → callback drives a ``rich.progress.Progress`` bar on
+      stderr (so stdout stays usable for piping) and ``finalize``
+      stops it. ``rich`` is imported lazily so ``audiocli --help``
+      doesn't pay for it.
+    """
+    if json_mode:
+        import json as _json  # noqa: PLC0415
+
+        def on_event(event: dict) -> None:
+            typer.echo(_json.dumps(event))
+
+        def finalize() -> None:
+            return None
+
+        return on_event, finalize
+
+    # rich.progress is intentionally imported here, not at module top, so
+    # `audiocli --help` stays under its 120ms wall-clock budget.
+    from rich.progress import (  # noqa: PLC0415
+        BarColumn,
+        MofNCompleteColumn,
+        Progress,
+        TextColumn,
+        TimeRemainingColumn,
+    )
+
+    progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
+        TextColumn("[dim]{task.fields[current]}"),
+        transient=False,
+    )
+    task_id: list[int | None] = [None]
+    progress.start()
+
+    def on_event(event: dict) -> None:
+        kind = event.get("type")
+        if kind == "start":
+            task_id[0] = progress.add_task(
+                "processing",
+                total=event.get("total", 0),
+                current="",
+            )
+        elif kind == "progress" and task_id[0] is not None:
+            current = event.get("current") or ""
+            # Show just the basename to keep the bar readable.
+            display = current.rsplit("/", 1)[-1] if current else ""
+            progress.update(
+                task_id[0],
+                completed=event.get("done", 0),
+                current=display,
+            )
+        elif kind == "error":
+            # Errors render to stderr alongside the progress bar so they
+            # don't get scrolled off the top.
+            reason = event.get("reason", "")
+            file = event.get("file", "")
+            typer.echo(f"FAIL {file}: {reason}", err=True)
+
+    def finalize() -> None:
+        progress.stop()
+
+    return on_event, finalize
+
+
 def _make_command(op_obj: Op):
     """Wrap an op as a Typer-compatible command function.
 
@@ -87,16 +177,36 @@ def _make_command(op_obj: Op):
             ),
         ],
     )
+    json_param = inspect.Parameter(
+        "json_mode",
+        kind=inspect.Parameter.KEYWORD_ONLY,
+        default=False,
+        annotation=Annotated[
+            bool,
+            typer.Option(
+                "--json",
+                help=(
+                    "Emit one JSON event per line on stdout instead of a "
+                    "progress bar. Suitable for piping into another process."
+                ),
+            ),
+        ],
+    )
 
-    cli_params = [target_param, output_param, workers_param, recursive_param] + [
-        p.replace(kind=inspect.Parameter.KEYWORD_ONLY) for p in op_params
-    ]
+    cli_params = [
+        target_param,
+        output_param,
+        workers_param,
+        recursive_param,
+        json_param,
+    ] + [p.replace(kind=inspect.Parameter.KEYWORD_ONLY) for p in op_params]
 
     def cmd(**kwargs: Any) -> None:
         targets: list[Path] = kwargs.pop("target")
         output = kwargs.pop("output", None)
         workers = kwargs.pop("workers", 0)
         recursive = kwargs.pop("recursive", True)
+        json_mode = kwargs.pop("json_mode", False)
 
         from audiocli.errors import AudioCLIError  # noqa: PLC0415
         from audiocli.pipeline import run_per_file  # noqa: PLC0415
@@ -105,35 +215,43 @@ def _make_command(op_obj: Op):
         try:
             files = scan_targets(targets, recursive=recursive)
         except AudioCLIError as e:
-            typer.echo(f"error: {e}", err=True)
+            _emit_fatal_error(json_mode, str(e))
             raise typer.Exit(code=1) from e
 
         if not files:
-            typer.echo("error: no audio files matched the targets", err=True)
+            _emit_fatal_error(json_mode, "no audio files matched the targets")
             raise typer.Exit(code=1)
 
+        on_event, finalize = _make_event_subscriber(json_mode)
         try:
-            report = run_per_file(
-                files,
-                op_obj,
-                kwargs,
-                output=output,
-                workers=workers if workers > 0 else None,
+            try:
+                report = run_per_file(
+                    files,
+                    op_obj,
+                    kwargs,
+                    output=output,
+                    workers=workers if workers > 0 else None,
+                    on_event=on_event,
+                )
+            except AudioCLIError as e:
+                _emit_fatal_error(json_mode, str(e))
+                raise typer.Exit(code=1) from e
+        finally:
+            finalize()
+
+        if not json_mode:
+            # Successes go to stdout (one path per line) so users can pipe
+            # them to other tools. Failures already rendered via the
+            # progress-bar `error` event handler above.
+            for r in report.results:
+                if r.ok:
+                    typer.echo(str(r.path))
+
+            typer.echo(
+                f"done: {report.ok_count} ok, {report.failed_count} failed "
+                f"in {report.duration_s:.2f}s",
+                err=True,
             )
-        except AudioCLIError as e:
-            typer.echo(f"error: {e}", err=True)
-            raise typer.Exit(code=1) from e
-
-        for r in report.results:
-            if r.ok:
-                typer.echo(str(r.path))
-            else:
-                typer.echo(f"FAIL {r.path}: {r.error}", err=True)
-
-        typer.echo(
-            f"done: {report.ok_count} ok, {report.failed_count} failed in {report.duration_s:.2f}s",
-            err=True,
-        )
 
         if report.failed_count > 0:
             raise typer.Exit(code=report.exit_code)

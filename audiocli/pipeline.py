@@ -28,6 +28,13 @@ from threading import Event
 from typing import Any
 
 from audiocli.errors import AudioCLIError, OpError
+from audiocli.events import (
+    DoneEvent,
+    ErrorEvent,
+    FileDoneEvent,
+    ProgressEvent,
+    StartEvent,
+)
 from audiocli.io import extension_for_format, load, save
 from audiocli.registry import Op
 
@@ -115,8 +122,10 @@ def run_per_file(
             there is exactly one target).
         workers: thread count. ``None`` → :func:`default_workers`.
         on_event: optional callback invoked with structured event dicts.
-            Filled in fully by issue #03; today only ``"start"``,
-            ``"file_done"`` and ``"done"`` are emitted, all best-effort.
+            Best-effort — exceptions raised by the callback are swallowed
+            so a buggy subscriber cannot kill the batch. The full event
+            protocol (``start`` / ``progress`` / ``file_done`` / ``error``
+            / ``done``) is documented in :mod:`audiocli.events`.
         cancel_token: optional :class:`threading.Event` flipped by the
             caller to stop the job. In-flight files complete; no new files
             are submitted. Filled in fully by issue #14.
@@ -136,8 +145,9 @@ def run_per_file(
 
     report = JobReport()
     start = time.perf_counter()
+    total = len(paths)
 
-    _emit(on_event, {"type": "start", "total": len(paths), "workers": n_workers})
+    _emit(on_event, StartEvent(total=total, workers=n_workers).to_json())
 
     # `ThreadPoolExecutor` as a context manager guarantees we wait on every
     # in-flight task before returning, so a worker exception cannot escape
@@ -162,23 +172,37 @@ def run_per_file(
             report.results.append(result)
             _emit(
                 on_event,
-                {
-                    "type": "file_done",
-                    "path": str(result.path),
-                    "ok": result.ok,
-                    "error": result.error,
-                },
+                FileDoneEvent(
+                    path=str(result.path),
+                    ok=result.ok,
+                    error=result.error,
+                ).to_json(),
+            )
+            if not result.ok:
+                _emit(
+                    on_event,
+                    ErrorEvent(
+                        file=str(result.path),
+                        reason=result.error or "unknown error",
+                    ).to_json(),
+                )
+            _emit(
+                on_event,
+                ProgressEvent(
+                    done=len(report.results),
+                    total=total,
+                    current=str(result.path),
+                ).to_json(),
             )
 
     report.duration_s = time.perf_counter() - start
     _emit(
         on_event,
-        {
-            "type": "done",
-            "ok": report.ok_count,
-            "failed": report.failed_count,
-            "duration_s": report.duration_s,
-        },
+        DoneEvent(
+            ok=report.ok_count,
+            failed=report.failed_count,
+            duration_s=report.duration_s,
+        ).to_json(),
     )
     return report
 
