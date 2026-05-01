@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audiocli"
+version = "2.0.0a0"
+description = "Pedalboard-powered batch audio power-tool for the command line."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Dion Timmer", email = "diontimmer@live.nl" }]
+keywords = ["audio", "cli", "pedalboard", "batch", "dsp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = [
+    "pedalboard>=0.9",
+    "numpy>=1.24",
+    "typer>=0.12",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+audiocli = "audiocli.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/diontimmer/AudioCLI"
+
+[tool.setuptools.packages.find]
+include = ["audiocli*"]
+exclude = ["tests*", "docs*", ".scratch*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
