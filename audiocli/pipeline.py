@@ -149,21 +149,41 @@ def run_per_file(
 
     _emit(on_event, StartEvent(total=total, workers=n_workers).to_json())
 
+    def _cancelled() -> bool:
+        return cancel_token is not None and cancel_token.is_set()
+
     # `ThreadPoolExecutor` as a context manager guarantees we wait on every
     # in-flight task before returning, so a worker exception cannot escape
     # silently in an unconsumed iterator (the bug the v1 batcher had).
     with ThreadPoolExecutor(max_workers=n_workers) as pool:
-        future_to_path = {}
+        future_to_path: dict[Any, Path] = {}
+        skipped: list[Path] = []
         for p in paths:
-            if cancel_token is not None and cancel_token.is_set():
+            if _cancelled():
                 # Caller cancelled before we could submit — record the
                 # remainder as failures so the report is faithful.
-                report.results.append(Result(path=p, ok=False, error="cancelled"))
+                skipped.append(p)
                 continue
-            fut = pool.submit(_run_one_safe, p, op, params, output_path)
+            fut = pool.submit(_run_one_safe, p, op, params, output_path, cancel_token)
             future_to_path[fut] = p
 
+        # Drain completed futures; check the token between each one so a
+        # mid-job cancellation skips remaining un-started work quickly.
+        # In-flight files are allowed to finish (no thread kills), as
+        # required by the issue spec.
         for fut in as_completed(future_to_path):
+            if _cancelled():
+                # Try to cancel still-pending futures (only un-started
+                # work can be cancelled by the executor); anything that
+                # was already running will complete and arrive here on a
+                # later iteration.
+                for pending, pending_path in list(future_to_path.items()):
+                    if pending is fut or pending.done():
+                        continue
+                    if pending.cancel():
+                        skipped.append(pending_path)
+                        future_to_path.pop(pending, None)
+
             path = future_to_path[fut]
             try:
                 result = fut.result()
@@ -192,6 +212,20 @@ def run_per_file(
                     done=len(report.results),
                     total=total,
                     current=str(result.path),
+                ).to_json(),
+            )
+
+        # Append cancellation results last so the report's progress
+        # reflects when the cancel happened relative to completed files.
+        for p in skipped:
+            cancelled_result = Result(path=p, ok=False, error="cancelled")
+            report.results.append(cancelled_result)
+            _emit(
+                on_event,
+                FileDoneEvent(
+                    path=str(p),
+                    ok=False,
+                    error="cancelled",
                 ).to_json(),
             )
 
@@ -236,14 +270,27 @@ def _run_one_safe(
     op: Op,
     params: dict[str, Any],
     output: Path | None,
+    cancel_token: Event | None = None,
 ) -> Result:
     """Worker: run one file, trap every exception, return a ``Result``.
 
     Never raises — ``run_per_file`` relies on this so the ``as_completed``
     loop never has to translate worker exceptions into failures itself.
+
+    If ``cancel_token`` is flipped before this worker starts its load, the
+    file is short-circuited as ``Result(ok=False, error="cancelled")`` so
+    a long batch can stop quickly without leaking thread time. Once the
+    op is running the worker is committed — we don't kill threads
+    mid-flight; the in-flight file is allowed to finish naturally.
     """
+    if cancel_token is not None and cancel_token.is_set():
+        return Result(path=src, ok=False, error="cancelled")
     try:
         buf = load(src)
+        if cancel_token is not None and cancel_token.is_set():
+            # Cancelled between load and op — bail before the (potentially
+            # expensive) DSP step rather than waste the work.
+            return Result(path=src, ok=False, error="cancelled")
         try:
             out_buf = op.func(buf, **params)
         except Exception as e:
