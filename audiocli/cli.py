@@ -104,7 +104,21 @@ def _register_commands() -> None:
         app.command(name=op_obj.name, help=op_obj.help)(cmd)
 
 
+def _register_shell() -> None:
+    """Register the ``shell`` REPL command on the Typer app.
+
+    ``audiocli.repl`` itself only imports light stdlib + click + typer at
+    module load. The heavy ``click_repl`` / ``prompt_toolkit`` imports
+    live inside ``run_shell`` and only fire when the user actually enters
+    the REPL, so ``audiocli --help`` stays under its 100ms budget.
+    """
+    from audiocli.repl import shell_command  # noqa: PLC0415
+
+    shell_command(app)
+
+
 _register_commands()
+_register_shell()
 
 
 def main() -> None:  # pragma: no cover
