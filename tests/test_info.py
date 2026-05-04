@@ -9,10 +9,10 @@ import numpy as np
 import pytest
 from typer.testing import CliRunner
 
+from audiocli.analysis import compute_info
 from audiocli.buffer import AudioBuffer
 from audiocli.cli import app
 from audiocli.io import load, save
-from audiocli.special import compute_info
 
 DATA = Path(__file__).parent / "data" / "test_song.wav"
 

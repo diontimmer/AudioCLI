@@ -9,10 +9,10 @@ import pytest
 from typer.testing import CliRunner
 
 from audiocli.buffer import AudioBuffer
+from audiocli.chunking import chunk_buffer
 from audiocli.cli import app
 from audiocli.errors import AudioCLIError
 from audiocli.io import load, save
-from audiocli.special import chunk_buffer
 
 
 def _write_sine(path: Path, *, sr: int = 22050, duration_s: float = 3.5, peak: float = 0.2) -> None:

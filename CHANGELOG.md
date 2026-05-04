@@ -26,7 +26,7 @@ A complete, breaking rewrite. AudioCLI is repositioned from "ML data-prep tool" 
 - **`librosa`, `scipy`, `aeiou`, `tqdm`, `termcolor`, `readline`, `icli`, `einops`, `pdoc`** are no longer dependencies.
 - **`download http`** recursive scrape — punted to a possible future `audiocli-plugin-http-scrape` plugin.
 - **`process file`** unreachable command path — its loader-confusion bug is fixed by the new `run-script` command.
-- **`one_shot_args` global state** — replaced by an explicit `JobContext` dataclass passed through the pipeline.
+- **`one_shot_args` global state** — replaced by explicit per-call `run_per_file(...)` parameters.
 
 ### Added — engine
 
@@ -39,6 +39,7 @@ A complete, breaking rewrite. AudioCLI is repositioned from "ML data-prep tool" 
 - **Per-file `Result` + end-of-job `JobReport`** with `ok_count`, `failed_count`, `failures`, `duration_s`, `exit_code` (capped at 255).
 - **Cancellation.** `run_per_file` accepts a `cancel_token: threading.Event`; flipping it from any thread skips pending submissions, lets in-flight files finish, and returns a partial `JobReport`.
 - **Bulletproof:** a job over 1000 files where 50 are deliberately broken finishes, reports 950 successes + 50 failures with reasons, exits non-zero, and never hangs.
+- **Modular execution seams.** Event dispatch, output path resolution, worker-count policy, and CLI rendering live in focused modules so the pipeline remains library-only execution code.
 
 ### Added — CLI
 
@@ -48,6 +49,7 @@ A complete, breaking rewrite. AudioCLI is repositioned from "ML data-prep tool" 
 - **Cross-platform REPL** via `click-repl` + `prompt_toolkit` (replaces v1's Unix-only `readline`-based shell). Same Typer app powers REPL and one-shot; commands are identical. ` ; ` chaining preserved. History persists across sessions.
 - **`--json` event mode**: every op emits newline-delimited `{"type": "start" | "progress" | "file_done" | "error" | "done", ...}` events on stdout. Same protocol the eventual desktop app uses to subscribe via `on_event=`.
 - **Persistent settings** at the `platformdirs` user-config location (XDG on Linux, `~/Library/Application Support/AudioCLI` on macOS, `%APPDATA%\AudioCLI` on Windows), JSON with a `"schema": 1` field for future migrations.
+- **First-party command modules.** Special-case commands (`info`, `remove-silent`, `chunk`) are direct Typer commands, with reusable analysis, silence detection, and chunking logic split into focused library modules.
 
 ### Added — first-party ops
 
@@ -90,7 +92,7 @@ AudioCLIError
 ### Tooling
 
 - Ruff lints + formats. `ruff check . && ruff format --check .` is the full lint pass.
-- 295 tests covering every op (round-trip + correctness + negative), the pipeline (50-files-with-3-corrupt isolation, cancellation mid-batch, no-thread-leak), the CLI (every command's `--help`, `--json` JSON parseability, exit codes), the REPL (`;`-chaining, history, `set` persistence), the plugin loader (entry-point discovery, conflict resolution, malformed signature → `PluginError`), and the library API (`list_ops()` shape, `run_per_file` callable surface).
+- 313 tests covering every op (round-trip + correctness + negative), the pipeline (50-files-with-3-corrupt isolation, cancellation mid-batch, no-thread-leak), the CLI (every command's `--help`, `--json` JSON parseability, exit codes), the REPL (`;`-chaining, history, `set` persistence), the plugin loader (entry-point discovery, conflict resolution, malformed signature → `PluginError`), and the library API (`list_ops()` shape, `run_per_file` callable surface).
 - CI matrix: `{ubuntu, macos, windows}-latest × {3.10, 3.11, 3.12}` running `ruff check`, `ruff format --check`, `pytest --cov`.
 
 [2.0.0]: https://github.com/diontimmer/AudioCLI/releases/tag/v2.0.0

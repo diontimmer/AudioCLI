@@ -18,7 +18,7 @@ from audiocli.buffer import AudioBuffer
 from audiocli.cli import app
 from audiocli.errors import AudioCLIError
 from audiocli.io import save
-from audiocli.pipeline import JobReport, Result, run_per_file
+from audiocli.pipeline import JobReport, Result, run_one, run_per_file
 from audiocli.registry import op as op_decorator
 
 DATA = Path(__file__).parent / "data" / "test_song.wav"
@@ -140,6 +140,18 @@ def test_no_silent_drops_on_worker_exception(tmp_path):
 def test_run_per_file_empty_targets_raises():
     with pytest.raises(AudioCLIError):
         run_per_file([], _gain_op(), {"db": 0.0})
+
+
+def test_run_one_returns_actual_written_path_after_format_rewrite(tmp_path):
+    from audiocli.ops.convert import convert  # noqa: PLC0415
+
+    src = tmp_path / "song.wav"
+    _write_synth(src)
+
+    result = run_one(src, convert.__op__, {"format": "flac"})
+
+    assert result == tmp_path / "song_convert.flac"
+    assert result.exists()
 
 
 def test_result_dataclass_fields():

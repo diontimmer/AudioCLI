@@ -133,3 +133,31 @@ def test_no_thread_leak_on_cancel(tmp_path):
     # Allow a small slack for unrelated test infrastructure threads, but
     # certainly no per-worker leak.
     assert after <= before + 1, (before, after)
+
+
+def test_cancelled_files_emit_error_and_progress_events(tmp_path):
+    files = []
+    for i in range(3):
+        p = tmp_path / f"in_{i}.wav"
+        _write_synth(p)
+        files.append(p)
+
+    cancel = threading.Event()
+    cancel.set()
+    events: list[dict] = []
+
+    run_per_file(
+        files,
+        _cancel_sleepy.__op__,
+        {"seconds": 0.0},
+        output=tmp_path / "out",
+        workers=2,
+        cancel_token=cancel,
+        on_event=events.append,
+    )
+
+    types = [event["type"] for event in events]
+    assert types.count("file_done") == len(files)
+    assert types.count("error") == len(files)
+    assert types.count("progress") == len(files)
+    assert [event["done"] for event in events if event["type"] == "progress"] == [1, 2, 3]

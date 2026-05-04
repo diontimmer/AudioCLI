@@ -16,6 +16,7 @@ from typing import Annotated, Any
 
 import typer
 
+from audiocli.output import make_batch_output, render_fatal_error, render_job_report
 from audiocli.registry import Op, all_ops
 
 app = typer.Typer(
@@ -28,96 +29,6 @@ app = typer.Typer(
 @app.callback()
 def _root() -> None:
     """Forces Typer into subcommand mode even when only one op is registered."""
-
-
-def _emit_fatal_error(json_mode: bool, message: str) -> None:
-    """Surface a top-level error before/around the pipeline run.
-
-    In ``--json`` mode we still produce parseable output: a single
-    ``error`` event plus a terminating ``done`` event with no successes
-    so subscribers can drive their state machines uniformly. In default
-    mode we fall back to the human-readable ``error: ...`` line.
-    """
-    if json_mode:
-        import json as _json  # noqa: PLC0415
-
-        typer.echo(_json.dumps({"type": "error", "file": None, "reason": message}))
-        typer.echo(_json.dumps({"type": "done", "ok": 0, "failed": 0, "duration_s": 0.0}))
-    else:
-        typer.echo(f"error: {message}", err=True)
-
-
-def _make_event_subscriber(json_mode: bool):
-    """Build the ``on_event`` callback and a ``finalize()`` cleanup pair.
-
-    - ``json_mode=True`` → callback prints one JSON object per line on
-      stdout. ``finalize`` is a noop.
-    - Otherwise → callback drives a ``rich.progress.Progress`` bar on
-      stderr (so stdout stays usable for piping) and ``finalize``
-      stops it. ``rich`` is imported lazily so ``audiocli --help``
-      doesn't pay for it.
-    """
-    if json_mode:
-        import json as _json  # noqa: PLC0415
-
-        def on_event(event: dict) -> None:
-            typer.echo(_json.dumps(event))
-
-        def finalize() -> None:
-            return None
-
-        return on_event, finalize
-
-    # rich.progress is intentionally imported here, not at module top, so
-    # `audiocli --help` stays under its 120ms wall-clock budget.
-    from rich.progress import (  # noqa: PLC0415
-        BarColumn,
-        MofNCompleteColumn,
-        Progress,
-        TextColumn,
-        TimeRemainingColumn,
-    )
-
-    progress = Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TextColumn("•"),
-        TimeRemainingColumn(),
-        TextColumn("[dim]{task.fields[current]}"),
-        transient=False,
-    )
-    task_id: list[int | None] = [None]
-    progress.start()
-
-    def on_event(event: dict) -> None:
-        kind = event.get("type")
-        if kind == "start":
-            task_id[0] = progress.add_task(
-                "processing",
-                total=event.get("total", 0),
-                current="",
-            )
-        elif kind == "progress" and task_id[0] is not None:
-            current = event.get("current") or ""
-            # Show just the basename to keep the bar readable.
-            display = current.rsplit("/", 1)[-1] if current else ""
-            progress.update(
-                task_id[0],
-                completed=event.get("done", 0),
-                current=display,
-            )
-        elif kind == "error":
-            # Errors render to stderr alongside the progress bar so they
-            # don't get scrolled off the top.
-            reason = event.get("reason", "")
-            file = event.get("file", "")
-            typer.echo(f"FAIL {file}: {reason}", err=True)
-
-    def finalize() -> None:
-        progress.stop()
-
-    return on_event, finalize
 
 
 def _make_command(op_obj: Op):
@@ -215,14 +126,14 @@ def _make_command(op_obj: Op):
         try:
             files = scan_targets(targets, recursive=recursive)
         except AudioCLIError as e:
-            _emit_fatal_error(json_mode, str(e))
+            render_fatal_error(json_mode, str(e))
             raise typer.Exit(code=1) from e
 
         if not files:
-            _emit_fatal_error(json_mode, "no audio files matched the targets")
+            render_fatal_error(json_mode, "no audio files matched the targets")
             raise typer.Exit(code=1)
 
-        on_event, finalize = _make_event_subscriber(json_mode)
+        output_adapter = make_batch_output(json_mode)
         try:
             try:
                 report = run_per_file(
@@ -231,27 +142,15 @@ def _make_command(op_obj: Op):
                     kwargs,
                     output=output,
                     workers=workers if workers > 0 else None,
-                    on_event=on_event,
+                    on_event=output_adapter.on_event,
                 )
             except AudioCLIError as e:
-                _emit_fatal_error(json_mode, str(e))
+                output_adapter.render_fatal_error(str(e))
                 raise typer.Exit(code=1) from e
         finally:
-            finalize()
+            output_adapter.close()
 
-        if not json_mode:
-            # Successes go to stdout (one path per line) so users can pipe
-            # them to other tools. Failures already rendered via the
-            # progress-bar `error` event handler above.
-            for r in report.results:
-                if r.ok:
-                    typer.echo(str(r.path))
-
-            typer.echo(
-                f"done: {report.ok_count} ok, {report.failed_count} failed "
-                f"in {report.duration_s:.2f}s",
-                err=True,
-            )
+        output_adapter.render_report(report)
 
         if report.failed_count > 0:
             raise typer.Exit(code=report.exit_code)
@@ -419,11 +318,11 @@ def _register_hook() -> None:
             op_obj = make_hook_op(user_func, script)
             files = scan_targets(target, recursive=recursive)
         except AudioCLIError as e:
-            typer.echo(f"error: {e}", err=True)
+            render_fatal_error(False, str(e))
             raise typer.Exit(code=1) from e
 
         if not files:
-            typer.echo("error: no audio files matched the targets", err=True)
+            render_fatal_error(False, "no audio files matched the targets")
             raise typer.Exit(code=1)
 
         try:
@@ -435,19 +334,10 @@ def _register_hook() -> None:
                 workers=workers if workers > 0 else None,
             )
         except AudioCLIError as e:
-            typer.echo(f"error: {e}", err=True)
+            render_fatal_error(False, str(e))
             raise typer.Exit(code=1) from e
 
-        for r in report.results:
-            if r.ok:
-                typer.echo(str(r.path))
-            else:
-                typer.echo(f"FAIL {r.path}: {r.error}", err=True)
-
-        typer.echo(
-            f"done: {report.ok_count} ok, {report.failed_count} failed in {report.duration_s:.2f}s",
-            err=True,
-        )
+        render_job_report(report)
 
         if report.failed_count > 0:
             raise typer.Exit(code=report.exit_code)

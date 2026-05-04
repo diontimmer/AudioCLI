@@ -13,6 +13,7 @@ import json
 from audiocli.events import (
     DoneEvent,
     ErrorEvent,
+    EventSink,
     FileDoneEvent,
     ProgressEvent,
     StartEvent,
@@ -92,3 +93,43 @@ def test_all_event_types_have_type_field():
         assert "type" in ev.to_json()
         # Every dict must be JSON-serialisable.
         json.dumps(ev.to_json())
+
+
+def test_event_sink_completed_file_emits_protocol_sequence():
+    seen: list[dict] = []
+    sink = EventSink(seen.append)
+
+    sink.completed_file(
+        path="/tmp/bad.wav",
+        ok=False,
+        error="bad magic",
+        done=1,
+        total=2,
+    )
+
+    assert [event["type"] for event in seen] == ["file_done", "error", "progress"]
+    assert seen[0] == {
+        "type": "file_done",
+        "path": "/tmp/bad.wav",
+        "ok": False,
+        "error": "bad magic",
+    }
+    assert seen[1] == {
+        "type": "error",
+        "file": "/tmp/bad.wav",
+        "reason": "bad magic",
+    }
+    assert seen[2] == {
+        "type": "progress",
+        "done": 1,
+        "total": 2,
+        "current": "/tmp/bad.wav",
+    }
+
+
+def test_event_sink_callback_errors_do_not_escape():
+    def explode(_event: dict) -> None:
+        raise RuntimeError("subscriber blew up")
+
+    sink = EventSink(explode)
+    sink.start(total=1, workers=1)

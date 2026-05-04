@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 from audiocli.buffer import AudioBuffer
 from audiocli.cli import app
 from audiocli.io import save
-from audiocli.special import is_silent
+from audiocli.silence import is_silent
 
 
 def _write_silent(path: Path, *, sr: int = 22050, peak: float = 1e-6) -> None:

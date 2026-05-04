@@ -198,3 +198,30 @@ def test_json_no_human_readable_lines_on_stdout(tmp_path):
         if not line:
             continue
         json.loads(line)  # raises if any line isn't JSON
+
+
+def test_json_fatal_error_is_newline_delimited(tmp_path):
+    src = tmp_path / "empty"
+    src.mkdir()
+    (src / "notes.txt").write_text("not audio")
+
+    code, events = _run_json(
+        [
+            "gain",
+            "--target",
+            str(src),
+            "--db",
+            "0",
+            "--json",
+        ]
+    )
+
+    assert code != 0
+    assert events == [
+        {
+            "type": "error",
+            "file": None,
+            "reason": "no audio files matched the targets",
+        },
+        {"type": "done", "ok": 0, "failed": 0, "duration_s": 0.0},
+    ]

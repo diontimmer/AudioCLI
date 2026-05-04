@@ -25,9 +25,10 @@ every file completion). Mirrors the canonical PRD shape::
     {"type": "file_done", "path": str, "ok": bool, "error": str | None}
 
 ``error`` — emitted for every failed file in addition to ``file_done``,
-so subscribers that only care about errors don't have to filter::
+so subscribers that only care about errors don't have to filter. CLI-level
+fatal errors that are not tied to a file use ``null`` for ``file``::
 
-    {"type": "error", "file": str, "reason": str}
+    {"type": "error", "file": str | None, "reason": str}
 
 ``done`` — emitted exactly once at the end of the run::
 
@@ -42,15 +43,16 @@ Notes
   construct events with type-checked fields and call ``to_json()`` to
   obtain the dict. They are *not* required to use the dataclasses;
   passing equivalent dicts to ``on_event`` is equally valid.
-- Event order within a single run: ``start`` → (``progress`` |
-  ``file_done`` | ``error``)* → ``done``. ``progress`` and ``file_done``
-  share the same trigger (a file completing) so they always come in that
-  order; ``error`` only fires when the file failed.
+- Event order within a single run: ``start`` -> (``file_done`` ->
+  optional ``error`` -> ``progress``)* -> ``done``.
 """
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -103,7 +105,7 @@ class FileDoneEvent:
 class ErrorEvent:
     """Emitted alongside ``file_done`` whenever a file failed."""
 
-    file: str
+    file: str | None
     reason: str
 
     def to_json(self) -> dict[str, Any]:
@@ -127,9 +129,63 @@ class DoneEvent:
         }
 
 
+EventCallback = Callable[[dict[str, Any]], None]
+
+
+@dataclass
+class EventSink:
+    """Best-effort dispatcher for the structured event protocol."""
+
+    callback: EventCallback | None = None
+
+    def emit(self, event: dict[str, Any]) -> None:
+        if self.callback is None:
+            return
+        with contextlib.suppress(Exception):
+            self.callback(event)
+
+    def start(self, *, total: int, workers: int) -> None:
+        self.emit(StartEvent(total=total, workers=workers).to_json())
+
+    def completed_file(
+        self,
+        *,
+        path: str | Path,
+        ok: bool,
+        error: str | None,
+        done: int,
+        total: int,
+    ) -> None:
+        path_text = str(path)
+        self.file_done(path=path_text, ok=ok, error=error)
+        if not ok:
+            self.error(file=path_text, reason=error or "unknown error")
+        self.progress(done=done, total=total, current=path_text)
+
+    def file_done(self, *, path: str | Path, ok: bool, error: str | None = None) -> None:
+        self.emit(FileDoneEvent(path=str(path), ok=ok, error=error).to_json())
+
+    def error(self, *, file: str | Path | None, reason: str) -> None:
+        self.emit(ErrorEvent(file=str(file) if file is not None else None, reason=reason).to_json())
+
+    def progress(self, *, done: int, total: int, current: str | Path | None = None) -> None:
+        self.emit(
+            ProgressEvent(
+                done=done,
+                total=total,
+                current=str(current) if current is not None else None,
+            ).to_json()
+        )
+
+    def done(self, *, ok: int, failed: int, duration_s: float) -> None:
+        self.emit(DoneEvent(ok=ok, failed=failed, duration_s=duration_s).to_json())
+
+
 __all__ = [
     "DoneEvent",
     "ErrorEvent",
+    "EventCallback",
+    "EventSink",
     "FileDoneEvent",
     "ProgressEvent",
     "StartEvent",

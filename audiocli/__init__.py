@@ -72,7 +72,6 @@ from audiocli.events import (
 from audiocli.pipeline import (
     JobReport,
     Result,
-    default_workers,
     run_one,
     run_per_file,
 )
@@ -85,6 +84,7 @@ from audiocli.registry import (
     list_ops,
     op,
 )
+from audiocli.workers import default_workers
 
 __all__ = [
     "AudioBuffer",
