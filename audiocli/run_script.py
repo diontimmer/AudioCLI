@@ -33,6 +33,15 @@ class LineResult:
     exit_code: int = 0
     error: str | None = None
 
+    def to_view_model(self) -> dict[str, object]:
+        return {
+            "lineno": self.lineno,
+            "command": self.command,
+            "ok": self.ok,
+            "exit_code": self.exit_code,
+            "error": self.error,
+        }
+
 
 @dataclass
 class ScriptReport:
@@ -52,6 +61,14 @@ class ScriptReport:
     def exit_code(self) -> int:
         """0 when every line succeeded; otherwise the failure count, capped at 255."""
         return min(self.failed_count, 255)
+
+    def to_view_model(self) -> dict[str, object]:
+        return {
+            "ok_count": self.ok_count,
+            "failed_count": self.failed_count,
+            "exit_code": self.exit_code,
+            "results": [result.to_view_model() for result in self.results],
+        }
 
 
 def parse_script(path: Path) -> list[tuple[int, str]]:

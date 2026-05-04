@@ -36,9 +36,13 @@ dev = [
     "pytest-cov>=5",
     "ruff>=0.6",
 ]
+gui = [
+    "PySide6>=6.7",
+]
 
 [project.scripts]
 audiocli = "audiocli.cli:app"
+audiocli-gui = "audiocli.gui.app:main"
 
 [project.urls]
 Homepage = "https://github.com/diontimmer/AudioCLI"

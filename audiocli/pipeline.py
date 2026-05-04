@@ -25,10 +25,10 @@ from pathlib import Path
 from threading import Event
 from typing import Any
 
-from audiocli.destinations import resolve_output
+from audiocli.destinations import resolve_output, rewrite_output_extension
 from audiocli.errors import AudioCLIError, OpError
 from audiocli.events import EventCallback, EventSink
-from audiocli.io import extension_for_format, load, save
+from audiocli.io import load, save
 from audiocli.registry import Op
 from audiocli.workers import resolve_worker_count
 
@@ -244,8 +244,7 @@ def _run_one_safe(
         except Exception as e:
             raise OpError(f"op '{op.name}' failed on {src}: {e}") from e
         dst = resolve_output(src, output, op.name)
-        if out_buf.format is not None:
-            dst = dst.with_suffix(extension_for_format(out_buf.format))
+        dst = rewrite_output_extension(dst, out_buf.format)
         save(
             dst,
             out_buf,

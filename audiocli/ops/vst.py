@@ -55,6 +55,7 @@ def vst(
     """
     import numpy as np  # noqa: PLC0415
 
+    plugin_path = Path(plugin_path).expanduser()
     plugin = _load_plugin(plugin_path)
     overrides = _parse_param_strings(list(params))
     _apply_param_overrides(plugin, overrides)

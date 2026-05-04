@@ -16,7 +16,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, get_args, get_origin
+from typing import Any, Literal, get_args, get_origin
 
 _REGISTRY: dict[str, Op] = {}
 
@@ -60,6 +60,7 @@ class ParamInfo:
     default: Any = None
     help: str = ""
     required: bool = False
+    choices: list[Any] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,13 @@ def _type_name(annotation: Any) -> str:
         # typing.Annotated reports the underlying type as its first arg.
         if args and getattr(annotation, "__metadata__", None) is not None:
             return _type_name(args[0])
+        if origin is Literal:
+            if not args:
+                return "literal"
+            literal_types = {type(arg) for arg in args}
+            if len(literal_types) == 1:
+                return _type_name(next(iter(literal_types)))
+            return "literal"
         # X | Y unions and Optional[X]: pick the first non-None member.
         if args:
             non_none = [a for a in args if a is not type(None)]
@@ -124,6 +132,26 @@ def _param_help(annotation: Any) -> str:
     return ""
 
 
+def _literal_choices(annotation: Any) -> list[Any]:
+    """Return literal choices declared by an annotation, if any."""
+
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin is None:
+        return []
+    if args and getattr(annotation, "__metadata__", None) is not None:
+        return _literal_choices(args[0])
+    if origin is Literal:
+        return list(args)
+
+    choices: list[Any] = []
+    for arg in args:
+        if arg is type(None):
+            continue
+        choices.extend(_literal_choices(arg))
+    return choices
+
+
 def _op_to_info(op_obj: Op) -> OpInfo:
     """Project an :class:`Op` registry record onto its public :class:`OpInfo`."""
     params: list[ParamInfo] = []
@@ -144,6 +172,7 @@ def _op_to_info(op_obj: Op) -> OpInfo:
                 default=default,
                 help=_param_help(p.annotation),
                 required=required,
+                choices=_literal_choices(p.annotation),
             )
         )
     return OpInfo(name=op_obj.name, help=op_obj.help, kind="filter", params=params)
