@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 
 from audiocli.capabilities import CapabilityNode
 from audiocli.errors import AudioCLIError
+from audiocli.gui.qt_compat import is_checked_state
 from audiocli.gui.service import InMemoryWorkspaceService
 
 USER_ROLE = int(Qt.ItemDataRole.UserRole)
@@ -253,7 +254,7 @@ class MainWindow(QMainWindow):
         self.recursive_scan = QCheckBox("Recursive")
         self.recursive_scan.setObjectName("recursive_scan")
         self.recursive_scan.stateChanged.connect(
-            lambda state: self.service.set_recursive(state == int(Qt.CheckState.Checked))
+            lambda state: self.service.set_recursive(is_checked_state(state))
         )
         mode_row.addWidget(self.recursive_scan)
         mode_row.addStretch(1)
@@ -632,9 +633,7 @@ class MainWindow(QMainWindow):
             checkbox = QCheckBox()
             checkbox.setObjectName(f"param_widget_{name}")
             checkbox.setChecked(bool(value))
-            checkbox.stateChanged.connect(
-                lambda state: updater(state == int(Qt.CheckState.Checked))
-            )
+            checkbox.stateChanged.connect(lambda state: updater(is_checked_state(state)))
             return checkbox
 
         if hint == "number" or type_name in {"int", "integer", "float", "number"}:
