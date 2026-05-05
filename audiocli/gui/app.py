@@ -30,10 +30,35 @@ def create_main_window(*, test_safe: bool = False, service=None):  # noqa: ANN00
     return MainWindow(service=service, test_safe=test_safe)
 
 
+def _packaged_static_smoke() -> int:
+    """Run a packaging smoke check without importing PySide6."""
+
+    from audiocli.capabilities import list_capabilities
+    from audiocli.plugin_discovery import macos_default_plugin_scan_directory_specs
+
+    capability_ids = {cap.id for cap in list_capabilities()}
+    if "builtin.external_plugin.vst" not in capability_ids:
+        sys.stderr.write("ERROR: missing builtin.external_plugin.vst capability\n")
+        return 1
+    lines = [
+        "AudioCLI GUI packaged static smoke",
+        f"capabilities: {len(capability_ids)}",
+        "plugin scan dirs:",
+    ]
+    lines.extend(
+        f"- {spec['format']} {spec['scope']}: {spec['path']}"
+        for spec in macos_default_plugin_scan_directory_specs()
+    )
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the AudioCLI desktop shell."""
 
     args = list(sys.argv if argv is None else argv)
+    if "--packaged-static-smoke" in args:
+        return _packaged_static_smoke()
     try:
         from audiocli.gui.main_window import MainWindow, ensure_qapplication
     except ModuleNotFoundError as exc:

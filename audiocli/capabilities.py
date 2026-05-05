@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from audiocli.io import SUPPORTED_FORMATS
+from audiocli.plugin_discovery import macos_default_plugin_scan_directory_specs
 from audiocli.registry import OpInfo, ParamInfo, list_ops
 
 
@@ -1133,6 +1134,7 @@ def _vst_external_plugin_capability() -> CapabilityNode:
             "plugin_host": "pedalboard.load_plugin",
             "operation_name": "vst",
             "plugin_formats": ["VST3", "AU"],
+            "default_scan_directories": macos_default_plugin_scan_directory_specs(),
             "parameter_serialization": "repeatable key=value strings",
             "platform_notes": [
                 "VST3 plugins require a compatible plugin build for this operating system and CPU architecture.",
