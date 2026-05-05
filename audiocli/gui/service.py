@@ -27,7 +27,13 @@ from audiocli.gui.import_export import (
 )
 from audiocli.gui.library import SavedChainEntry, SavedChainLibraryService
 from audiocli.gui.settings import GuiSettings, load_gui_settings, save_gui_settings
-from audiocli.gui_service import ChainOutputPolicy, execute_file_chain, prepare_file_chain_execution
+from audiocli.gui_service import (
+    ChainOutputPolicy,
+    execute_file_chain,
+    prepare_file_chain_execution,
+    preview_name_regex_filter,
+    preview_remove_silent,
+)
 
 
 @dataclass
@@ -159,13 +165,13 @@ class WorkspaceExecutionService:
         user targets to the scanned file list before a worker is started.
         """
 
-        if request.output_mode != "destructive" or not _confirmation_is_confirmed(
+        if not _request_needs_destructive_confirmation(request) or not _confirmation_is_confirmed(
             request.destructive_confirmation
         ):
             return request
 
-        preparation = self._prepare_destructive_preflight(request, require_coverage=False)
-        affected_paths = [str(path) for path in preparation.targets]
+        impact = self.preview_destructive_impact(request)
+        affected_paths = list(impact.get("affected_paths") or [])
         confirmation = _confirmation_to_dict(request.destructive_confirmation)
         confirmation.update(
             {
@@ -180,6 +186,9 @@ class WorkspaceExecutionService:
     def preview_destructive_impact(self, request: WorkspaceExecutionRequest) -> dict[str, Any]:
         """Return scanned destructive impact details for confirmation UI."""
 
+        filter_impact = _preview_destructive_filter_impact(request)
+        if filter_impact is not None:
+            return filter_impact
         if request.output_mode != "destructive":
             return {
                 "affected_paths": [],
@@ -227,7 +236,7 @@ class WorkspaceExecutionService:
                     "node_id": "",
                 }
             )
-        if request.output_mode == "destructive" and not _confirmation_is_confirmed(
+        if _request_needs_destructive_confirmation(request) and not _confirmation_is_confirmed(
             request.destructive_confirmation
         ):
             errors.append(
@@ -801,6 +810,64 @@ def _snapshot_chain(
     snapshot.source_path = chain.source_path
     snapshot.chain_dir = chain.chain_dir
     return snapshot
+
+
+def _destructive_filter_kinds(request: WorkspaceExecutionRequest) -> list[str]:
+    try:
+        steps = request.chain.to_execution_plan(validate=True).steps
+    except Exception:
+        return []
+    kinds: list[str] = []
+    for step in steps:
+        if (
+            step.capability_id == "builtin.destructive.remove_silent"
+            or step.operation_name == "remove_silent"
+        ):
+            kinds.append("remove_silent")
+        elif (
+            step.capability_id == "builtin.destructive.name_regex"
+            or step.operation_name == "name_regex_filter"
+        ):
+            kinds.append("name_regex")
+    return kinds
+
+
+def _request_needs_destructive_confirmation(request: WorkspaceExecutionRequest) -> bool:
+    return request.output_mode == "destructive" or bool(_destructive_filter_kinds(request))
+
+
+def _preview_destructive_filter_impact(
+    request: WorkspaceExecutionRequest,
+) -> dict[str, Any] | None:
+    kinds = _destructive_filter_kinds(request)
+    if not kinds:
+        return None
+    if len(kinds) > 1:
+        raise AudioCLIError(
+            "GUI destructive preview supports exactly one destructive filter node per chain"
+        )
+    if kinds[0] == "remove_silent":
+        preview = preview_remove_silent(
+            request.chain,
+            request.targets,
+            recursive=request.recursive,
+        )
+        filter_kind = "remove_silent"
+    else:
+        preview = preview_name_regex_filter(
+            request.chain,
+            request.targets,
+            recursive=request.recursive,
+        )
+        filter_kind = "name_regex"
+    affected_paths = [str(path) for path in preview.affected_paths]
+    return {
+        "affected_paths": affected_paths,
+        "affected_file_count": len(affected_paths),
+        "affected_directory_count": _target_directory_count(request.targets),
+        "destructive_filter": filter_kind,
+        "preview": preview.to_view_model(),
+    }
 
 
 def _confirmation_is_confirmed(confirmation: Mapping[str, Any] | None) -> bool:

@@ -220,6 +220,36 @@ def test_workspace_destructive_mode_rejects_without_confirmation(tmp_path) -> No
     assert service.job.running is False
 
 
+def test_workspace_name_regex_filter_confirmation_uses_preview_candidates(tmp_path) -> None:
+    junk = _copy_song(tmp_path / "junk_take.wav")
+    keep = _copy_song(tmp_path / "keeper.wav")
+    service = InMemoryWorkspaceService()
+    service.add_node("builtin.destructive.name_regex")
+    service.update_selected_param("pattern", "junk")
+    service.set_targets([tmp_path])
+    request = service.make_execution_request()
+
+    impact = service.preview_destructive_impact(request)
+    errors = service.start_execution(request)
+    prepared = service.prepare_execution_request(
+        service.make_execution_request(destructive_confirmation={"confirmed": True})
+    )
+
+    assert impact["destructive_filter"] == "name_regex"
+    assert impact["affected_paths"] == [str(junk)]
+    assert impact["affected_file_count"] == 1
+    assert errors[0]["code"] == "destructive_confirmation_required"
+    assert prepared.destructive_confirmation["affected_paths"] == [str(junk)]
+    assert prepared.destructive_confirmation["affected_file_count"] == 1
+
+    report = service.execution.run_sync(prepared)
+
+    assert report["report"]["removed_count"] == 1
+    assert report["report"]["kept_count"] == 1
+    assert not junk.exists()
+    assert keep.exists()
+
+
 def test_qt_workspace_worker_emits_fake_events_when_pyside6_available() -> None:
     from audiocli.chains import CapabilityChain
 

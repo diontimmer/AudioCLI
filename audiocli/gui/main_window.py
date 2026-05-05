@@ -189,7 +189,7 @@ class MainWindow(QMainWindow):
 
         self.capability_browser = QTreeWidget()
         self.capability_browser.setObjectName("capability_browser")
-        self.capability_browser.setHeaderLabels(["Capability", "Type"])
+        self.capability_browser.setHeaderLabels(["Capability"])
         self.capability_browser.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.capability_browser.itemDoubleClicked.connect(self._add_browser_selection)
         layout.addWidget(self.capability_browser, 1)
@@ -377,11 +377,11 @@ class MainWindow(QMainWindow):
             group_name = capability.type.replace("_", " ").title() or "Capabilities"
             group_item = groups.get(group_name)
             if group_item is None:
-                group_item = QTreeWidgetItem([group_name, ""])
+                group_item = QTreeWidgetItem([group_name])
                 group_item.setFirstColumnSpanned(True)
                 groups[group_name] = group_item
                 self.capability_browser.addTopLevelItem(group_item)
-            item = QTreeWidgetItem([capability.display_name, capability.type])
+            item = QTreeWidgetItem([capability.display_name])
             item.setData(0, USER_ROLE, capability.id)
             item.setToolTip(0, capability.description)
             group_item.addChild(item)

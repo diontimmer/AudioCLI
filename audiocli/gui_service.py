@@ -8,6 +8,7 @@ library caller can consume directly.
 
 from __future__ import annotations
 
+import re
 import shlex
 import shutil
 import tempfile
@@ -251,6 +252,101 @@ class RemoveSilentPreview:
 
     @property
     def failed(self) -> list[RemoveSilentFileAssessment]:
+        return [result for result in self.results if result.status == "failed"]
+
+    @property
+    def cancelled(self) -> list[Path]:
+        return [result.path for result in self.results if result.status == "cancelled"]
+
+    @property
+    def removed_count(self) -> int:
+        return len(self.removed_candidates)
+
+    @property
+    def kept_count(self) -> int:
+        return len(self.kept)
+
+    @property
+    def failed_count(self) -> int:
+        return len(self.failed)
+
+    @property
+    def cancelled_count(self) -> int:
+        return len(self.cancelled)
+
+    def to_view_model(self) -> dict[str, Any]:
+        return {
+            "chain_id": self.chain_id,
+            "chain_name": self.chain_name,
+            "step": self.step.to_view_model(),
+            "target_count": len(self.targets),
+            "targets": [str(path) for path in self.targets],
+            "removed_candidates": [str(path) for path in self.removed_candidates],
+            "affected_paths": [str(path) for path in self.affected_paths],
+            "kept": [str(path) for path in self.kept],
+            "failed": [result.to_view_model() for result in self.failed],
+            "cancelled": [str(path) for path in self.cancelled],
+            "removed_count": self.removed_count,
+            "kept_count": self.kept_count,
+            "failed_count": self.failed_count,
+            "cancelled_count": self.cancelled_count,
+            "duration_s": self.duration_s,
+            "results": [result.to_view_model() for result in self.results],
+        }
+
+
+@dataclass(frozen=True)
+class NameRegexFileAssessment:
+    """Dry-run/confirmation assessment for one filename-regex filter file."""
+
+    path: Path
+    status: str
+    pattern: str
+    case_sensitive: bool = False
+    matched: bool | None = None
+    error: str | None = None
+
+    @property
+    def would_remove(self) -> bool:
+        return self.status == "removed"
+
+    def to_view_model(self) -> dict[str, Any]:
+        return {
+            "path": str(self.path),
+            "status": self.status,
+            "would_remove": self.would_remove,
+            "matched": self.matched,
+            "pattern": self.pattern,
+            "case_sensitive": self.case_sensitive,
+            "error": self.error,
+        }
+
+
+@dataclass
+class NameRegexFilterPreview:
+    """Structured dry-run summary for a guarded filename-regex filter node."""
+
+    chain_id: str
+    chain_name: str
+    step: ChainExecutionStep
+    targets: list[Path] = field(default_factory=list)
+    results: list[NameRegexFileAssessment] = field(default_factory=list)
+    duration_s: float = 0.0
+
+    @property
+    def removed_candidates(self) -> list[Path]:
+        return [result.path for result in self.results if result.status == "removed"]
+
+    @property
+    def affected_paths(self) -> list[Path]:
+        return self.removed_candidates
+
+    @property
+    def kept(self) -> list[Path]:
+        return [result.path for result in self.results if result.status == "kept"]
+
+    @property
+    def failed(self) -> list[NameRegexFileAssessment]:
         return [result for result in self.results if result.status == "failed"]
 
     @property
@@ -837,17 +933,24 @@ def execute_file_chain(
         include_hidden=include_hidden,
         follow_symlinks=follow_symlinks,
     )
-    if _has_remove_silent_step(preparation.plan.steps):
+    if _has_destructive_filter_step(preparation.plan.steps):
         if not _confirmation_is_confirmed(destructive_confirmation):
             raise AudioCLIError(
-                "remove-silent destructive filtering requires explicit confirmation; "
-                "run preview_remove_silent/dry-run first and confirm affected paths"
+                "name-regex/remove-silent destructive filtering requires explicit confirmation; "
+                "run a destructive dry-run preview first and confirm affected paths"
             )
-        remove_preview = _preview_remove_silent_for_confirmation(preparation)
-        _verify_remove_silent_affected_paths(
-            remove_preview.affected_paths,
-            destructive_confirmation,
-        )
+        if _has_remove_silent_step(preparation.plan.steps):
+            remove_preview = _preview_remove_silent_for_confirmation(preparation)
+            _verify_remove_silent_affected_paths(
+                remove_preview.affected_paths,
+                destructive_confirmation,
+            )
+        if _has_name_regex_filter_step(preparation.plan.steps):
+            name_preview = _preview_name_regex_for_confirmation(preparation)
+            _verify_name_regex_affected_paths(
+                name_preview.affected_paths,
+                destructive_confirmation,
+            )
 
     report = ChainRunReport()
     start = time.perf_counter()
@@ -1004,6 +1107,35 @@ def dry_run_remove_silent_chain(*args: Any, **kwargs: Any) -> RemoveSilentPrevie
     """Alias for :func:`preview_remove_silent`."""
 
     return preview_remove_silent(*args, **kwargs)
+
+
+def preview_name_regex_filter(
+    chain: CapabilityChain,
+    targets: Iterable[str | Path],
+    *,
+    recursive: bool = True,
+    extensions: Iterable[str] | None = None,
+    include_hidden: bool = False,
+    follow_symlinks: bool = False,
+    cancel_token: Event | None = None,
+) -> NameRegexFilterPreview:
+    """Dry-run a guarded filename-regex destructive filter without deleting anything."""
+
+    preparation = prepare_file_chain_execution(
+        chain,
+        targets,
+        recursive=recursive,
+        extensions=extensions,
+        include_hidden=include_hidden,
+        follow_symlinks=follow_symlinks,
+    )
+    return _preview_name_regex_at_chain_node(preparation, cancel_token=cancel_token)
+
+
+def dry_run_name_regex_filter_chain(*args: Any, **kwargs: Any) -> NameRegexFilterPreview:
+    """Alias for :func:`preview_name_regex_filter`."""
+
+    return preview_name_regex_filter(*args, **kwargs)
 
 
 def preview_chain_output_paths(
@@ -1266,7 +1398,9 @@ def _is_acli_script_step(step: ChainExecutionStep) -> bool:
 
 
 def _is_pass_through_step(step: ChainExecutionStep) -> bool:
-    return _is_analysis_step(step) or _is_remove_silent_step(step) or _is_acli_script_step(step)
+    return (
+        _is_analysis_step(step) or _is_destructive_filter_step(step) or _is_acli_script_step(step)
+    )
 
 
 def _is_chunk_step(step: ChainExecutionStep) -> bool:
@@ -1280,8 +1414,27 @@ def _is_remove_silent_step(step: ChainExecutionStep) -> bool:
     )
 
 
+def _is_name_regex_filter_step(step: ChainExecutionStep) -> bool:
+    return (
+        step.capability_id == "builtin.destructive.name_regex"
+        or step.operation_name == "name_regex_filter"
+    )
+
+
+def _is_destructive_filter_step(step: ChainExecutionStep) -> bool:
+    return _is_remove_silent_step(step) or _is_name_regex_filter_step(step)
+
+
 def _has_remove_silent_step(steps: Iterable[ChainExecutionStep]) -> bool:
     return any(_is_remove_silent_step(step) for step in steps)
+
+
+def _has_name_regex_filter_step(steps: Iterable[ChainExecutionStep]) -> bool:
+    return any(_is_name_regex_filter_step(step) for step in steps)
+
+
+def _has_destructive_filter_step(steps: Iterable[ChainExecutionStep]) -> bool:
+    return any(_is_destructive_filter_step(step) for step in steps)
 
 
 def _has_multi_output_step(steps: Iterable[ChainExecutionStep]) -> bool:
@@ -1458,10 +1611,32 @@ def _single_remove_silent_step_with_index(
     return step, index
 
 
+def _single_name_regex_filter_step_with_index(
+    steps: Iterable[ChainExecutionStep],
+) -> tuple[ChainExecutionStep, int]:
+    filter_steps = [
+        (index, step)
+        for index, step in enumerate(steps, start=1)
+        if _is_name_regex_filter_step(step)
+    ]
+    if not filter_steps:
+        raise AudioCLIError("chain does not contain a name-regex destructive filtering node")
+    if len(filter_steps) > 1:
+        raise AudioCLIError("dry-run preview supports exactly one name-regex node per chain")
+    index, step = filter_steps[0]
+    return step, index
+
+
 def _preview_remove_silent_for_confirmation(
     preparation: FileChainExecutionPreparation,
 ) -> RemoveSilentPreview:
     return _preview_remove_silent_at_chain_node(preparation)
+
+
+def _preview_name_regex_for_confirmation(
+    preparation: FileChainExecutionPreparation,
+) -> NameRegexFilterPreview:
+    return _preview_name_regex_at_chain_node(preparation)
 
 
 def _preview_remove_silent_at_chain_node(
@@ -1542,6 +1717,84 @@ def _preview_remove_silent_at_chain_node(
     return preview
 
 
+def _preview_name_regex_at_chain_node(
+    preparation: FileChainExecutionPreparation,
+    *,
+    cancel_token: Event | None = None,
+) -> NameRegexFilterPreview:
+    step, filter_step_index = _single_name_regex_filter_step_with_index(preparation.plan.steps)
+    pattern, case_sensitive, matcher = _name_regex_params(step)
+    target_paths = [Path(target) for target in preparation.targets]
+    preview = NameRegexFilterPreview(
+        chain_id=preparation.chain_id,
+        chain_name=preparation.chain_name,
+        step=step,
+        targets=target_paths,
+    )
+    start = time.perf_counter()
+    for source in target_paths:
+        if _cancel_requested(cancel_token):
+            preview.results.append(
+                NameRegexFileAssessment(
+                    path=source,
+                    status="cancelled",
+                    pattern=pattern,
+                    case_sensitive=case_sensitive,
+                    error="cancelled",
+                )
+            )
+            continue
+
+        temp_dir: Path | None = None
+        try:
+            temp_dir = Path(tempfile.mkdtemp(prefix=f"audiocli-dry-run-{source.stem}-"))
+            current_paths = _simulate_file_set_before_remove_silent(
+                source,
+                preparation.plan,
+                preparation.output_policy,
+                filter_step_index,
+                temp_dir,
+                cancel_token=cancel_token,
+            )
+            for _physical_path, preview_path in current_paths:
+                if _cancel_requested(cancel_token):
+                    preview.results.append(
+                        NameRegexFileAssessment(
+                            path=preview_path,
+                            status="cancelled",
+                            pattern=pattern,
+                            case_sensitive=case_sensitive,
+                            error="cancelled",
+                        )
+                    )
+                    continue
+                matched = bool(matcher.search(preview_path.name))
+                preview.results.append(
+                    NameRegexFileAssessment(
+                        path=preview_path,
+                        status="removed" if matched else "kept",
+                        pattern=pattern,
+                        case_sensitive=case_sensitive,
+                        matched=matched,
+                    )
+                )
+        except Exception as e:
+            preview.results.append(
+                NameRegexFileAssessment(
+                    path=source,
+                    status="failed",
+                    pattern=pattern,
+                    case_sensitive=case_sensitive,
+                    error=str(e) if isinstance(e, AudioCLIError) else f"{type(e).__name__}: {e}",
+                )
+            )
+        finally:
+            if temp_dir is not None:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+    preview.duration_s = time.perf_counter() - start
+    return preview
+
+
 def _simulate_file_set_before_remove_silent(
     source: Path,
     plan: ChainExecutionPlan,
@@ -1595,8 +1848,10 @@ def _simulate_file_set_before_remove_silent(
             collection_expanded = True
             continue
 
-        if _is_remove_silent_step(step):
-            raise AudioCLIError("dry-run preview supports exactly one remove-silent node per chain")
+        if _is_destructive_filter_step(step):
+            raise AudioCLIError(
+                "dry-run preview supports exactly one destructive filter node per chain"
+            )
 
         output_paths: list[tuple[Path, Path]] = []
         op = _load_hook_op(step) if _is_hook_step(step) else get_op(step.operation_name)
@@ -1719,12 +1974,45 @@ def _verify_remove_silent_affected_paths(
         )
 
 
+def _verify_name_regex_affected_paths(
+    candidates: Iterable[Path],
+    confirmation: DestructiveConfirmation | Mapping[str, Any] | None,
+) -> None:
+    affected = set(_confirmation_affected_paths(confirmation))
+    candidate_set = {Path(path).resolve() for path in candidates}
+    missing = sorted(candidate_set - affected, key=str)
+    extra = sorted(affected - candidate_set, key=str)
+    if missing or extra:
+        parts: list[str] = []
+        if missing:
+            parts.append("missing candidates: " + ", ".join(str(path) for path in missing))
+        if extra:
+            parts.append("unexpected paths: " + ", ".join(str(path) for path in extra))
+        raise AudioCLIError(
+            "name-regex confirmation affected_paths do not match dry-run candidates ("
+            + "; ".join(parts)
+            + ")"
+        )
+
+
 def _remove_silent_params(step: ChainExecutionStep) -> tuple[float, str]:
     threshold_db = float(step.params.get("threshold_db", -60.0))
     metric = str(step.params.get("metric", "rms"))
     if metric not in {"rms", "peak"}:
         raise AudioCLIError(f"unknown metric: {metric!r} (expected 'rms' or 'peak')")
     return threshold_db, metric
+
+
+def _name_regex_params(step: ChainExecutionStep) -> tuple[str, bool, re.Pattern[str]]:
+    pattern = str(step.params.get("pattern") or "")
+    if not pattern:
+        raise AudioCLIError("name-regex filter requires a pattern")
+    case_sensitive = bool(step.params.get("case_sensitive", False))
+    flags = 0 if case_sensitive else re.IGNORECASE
+    try:
+        return pattern, case_sensitive, re.compile(pattern, flags)
+    except re.error as exc:
+        raise AudioCLIError(f"invalid name-regex pattern: {exc}") from exc
 
 
 def _cancel_requested(cancel_token: Event | None) -> bool:
@@ -2453,6 +2741,46 @@ def _execute_chain_for_file(
                         "kept_count": len(kept_paths),
                     }
 
+                elif _is_name_regex_filter_step(step):
+                    saw_remove_silent = True
+                    output_paths = []
+                    removed_paths = []
+                    kept_paths = []
+                    pattern, case_sensitive, matcher = _name_regex_params(step)
+                    for path in input_paths:
+                        if _cancel_requested(cancel_token):
+                            return ChainFileResult(
+                                source_path=source,
+                                path=source,
+                                ok=False,
+                                error="cancelled",
+                                status="cancelled",
+                                cancelled_step_index=step_index,
+                                cancelled_step=step,
+                                intermediates=artifacts,
+                                analysis_results=analysis_results,
+                                script_results=script_results,
+                                step_file_sets=step_file_sets,
+                                current_files=input_paths,
+                                expanded_output_files=expanded_output_files,
+                                preserved_context_dir=None,
+                            )
+                        if matcher.search(path.name):
+                            path.unlink()
+                            removed_paths.append(path)
+                        else:
+                            kept_paths.append(path)
+                            output_paths.append(path)
+                    behavior = "destructive_filter"
+                    event_metadata = {
+                        "pattern": pattern,
+                        "case_sensitive": case_sensitive,
+                        "removed_paths": [str(path) for path in removed_paths],
+                        "kept_paths": [str(path) for path in kept_paths],
+                        "removed_count": len(removed_paths),
+                        "kept_count": len(kept_paths),
+                    }
+
                 else:
                     output_paths = []
                     op = _load_hook_op(step) if _is_hook_step(step) else get_op(step.operation_name)
@@ -2540,7 +2868,9 @@ def _execute_chain_for_file(
             if is_final:
                 expanded_output_files = list(output_paths)
 
-            node_status = "removed" if _is_remove_silent_step(step) and not output_paths else "ok"
+            node_status = (
+                "removed" if _is_destructive_filter_step(step) and not output_paths else "ok"
+            )
             _emit_chain_event(
                 on_event,
                 _chain_step_event(
@@ -2561,7 +2891,7 @@ def _execute_chain_for_file(
                     metadata=event_metadata or step_file_set.to_view_model(),
                 ),
             )
-            if _is_remove_silent_step(step) and not current_paths:
+            if _is_destructive_filter_step(step) and not current_paths:
                 if policy.mode in {"final_only", "destructive"} and temp_dir is not None:
                     shutil.rmtree(temp_dir, ignore_errors=True)
                     temp_dir = None

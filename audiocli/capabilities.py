@@ -157,6 +157,8 @@ class CapabilityNode:
             return _validate_external_script_hook_params(params or {})
         if self.metadata.get("validator") == "acli_script":
             return _validate_acli_script_params(params or {})
+        if self.metadata.get("validator") == "name_regex_filter":
+            return _validate_name_regex_filter_params(params or {})
         return validate_parameters(self.parameters, params or {})
 
     def to_view_model(self) -> dict[str, Any]:
@@ -272,7 +274,7 @@ _DESTRUCTIVE_FILTER_SAFETY = SafetySemantics(
     writes_files=True,
     external=False,
     notes=[
-        "This node deletes files classified as silent and filters them out of downstream chain execution.",
+        "This node deletes matching files and filters them out of downstream chain execution.",
         "Use dry-run preview to inspect affected files, then pass an explicit destructive confirmation before execution.",
     ],
 )
@@ -347,6 +349,7 @@ def list_capabilities(
         _analysis_info_capability(),
         _multi_output_chunk_capability(),
         _remove_silent_capability(),
+        _name_regex_filter_capability(),
         _vst_external_plugin_capability(),
         _external_script_hook_capability(),
         _acli_script_capability(),
@@ -662,6 +665,51 @@ def _validate_acli_script_params(params: dict[str, Any]) -> ValidationResult:
         values["strict"] = strict
 
     return ValidationResult(valid=not errors, errors=errors, values=values)
+
+
+def _validate_name_regex_filter_params(params: dict[str, Any]) -> ValidationResult:
+    """Validate filename-regex destructive filter params before execution."""
+
+    parameters = [
+        CapabilityParameter(
+            name="pattern",
+            type="str",
+            display_name="Name Regex",
+            required=True,
+            default=None,
+            control_hint="text",
+        ),
+        CapabilityParameter(
+            name="case_sensitive",
+            type="bool",
+            display_name="Case Sensitive",
+            required=False,
+            default=False,
+            control_hint="toggle",
+        ),
+    ]
+    result = validate_parameters(parameters, params)
+    errors = list(result.errors)
+    values = dict(result.values)
+    pattern = values.get("pattern")
+    case_sensitive = bool(values.get("case_sensitive", False))
+    if result.valid and isinstance(pattern, str):
+        flags = 0 if case_sensitive else re.IGNORECASE
+        try:
+            re.compile(pattern, flags)
+        except re.error as exc:
+            errors.append(
+                ValidationError(
+                    parameter="pattern",
+                    code="invalid_regex",
+                    message=f"Invalid filename regex: {exc}.",
+                    expected_type="valid regex",
+                    received=_received(pattern),
+                )
+            )
+    return ValidationResult(
+        valid=not errors, errors=errors, values=values if not errors else values
+    )
 
 
 def _validate_existing_script_path(
@@ -1085,6 +1133,60 @@ def _remove_silent_capability() -> CapabilityNode:
         },
         validation_state=validation_state,
         operation_name="remove_silent",
+    )
+
+
+def _name_regex_filter_capability() -> CapabilityNode:
+    parameters = [
+        CapabilityParameter(
+            name="pattern",
+            type="str",
+            display_name="Name Regex",
+            description="Python regex matched against each file name, including extension.",
+            required=True,
+            default=None,
+            control_hint="text",
+        ),
+        CapabilityParameter(
+            name="case_sensitive",
+            type="bool",
+            display_name="Case Sensitive",
+            description="When false, matching ignores case.",
+            required=False,
+            default=False,
+            control_hint="toggle",
+        ),
+    ]
+    validation_state = _validate_name_regex_filter_params({"pattern": ".*"})
+    return CapabilityNode(
+        id="builtin.destructive.name_regex",
+        type="destructive_filter",
+        display_name="Name Regex Filter",
+        description=(
+            "Delete audio files whose filename matches a regex and filter them out of downstream execution."
+        ),
+        input_shape=_AUDIO_IN,
+        output_shape=_DESTRUCTIVE_FILTER_OUT,
+        safety=_DESTRUCTIVE_FILTER_SAFETY,
+        parameters=parameters,
+        defaults={"case_sensitive": False},
+        metadata={
+            "validator": "name_regex_filter",
+            "dry_run_supported": True,
+            "destructive_filter": True,
+            "filters_file_set": True,
+            "match_target": "path.name",
+            "affected_paths_parameter": "affected_paths",
+            "result_statuses": ["kept", "removed", "failed", "cancelled"],
+            "affected_summary_schema": {
+                "removed_candidates": "list[str]",
+                "kept": "list[str]",
+                "failed": "list[dict[path,error]]",
+                "cancelled": "list[str]",
+            },
+        },
+        validation_state=validation_state,
+        operation_name="name_regex_filter",
     )
 
 

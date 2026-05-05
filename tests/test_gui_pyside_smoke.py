@@ -106,6 +106,8 @@ def test_main_window_construction_fake_service_and_form_rendering(qapp) -> None:
     chain = window.findChild(QtWidgets.QListWidget, "chain_editor")
     assert browser is not None
     assert chain is not None
+    assert browser.columnCount() == 1
+    assert browser.headerItem().text(0) == "Capability"
     assert browser.topLevelItemCount() == 1
     assert chain.count() == 1
 
