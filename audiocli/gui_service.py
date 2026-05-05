@@ -46,8 +46,13 @@ from audiocli.silence import is_silent
 
 CHAIN_OUTPUT_MODES = frozenset({"final_only", "keep_intermediates", "destructive"})
 INTERMEDIATES_DIRNAME = ".audiocli-intermediates"
-CHAIN_FILE_STATUSES = frozenset({"ok", "kept", "removed", "failed", "cancelled"})
-CHAIN_SUCCESS_STATUSES = frozenset({"ok", "kept", "removed"})
+CHAIN_FILE_STATUSES = frozenset(
+    {"ok", "kept", "filtered", "removed", "copied", "moved", "renamed", "failed", "cancelled"}
+)
+CHAIN_SUCCESS_STATUSES = frozenset(
+    {"ok", "kept", "filtered", "removed", "copied", "moved", "renamed"}
+)
+FILE_FILTER_CONFIRMATION_ACTIONS = frozenset({"delete", "move", "rename"})
 
 
 @dataclass(frozen=True)
@@ -83,6 +88,10 @@ class ChainEvent:
     ok_count: int | None = None
     kept_count: int | None = None
     removed_count: int | None = None
+    filtered_count: int | None = None
+    copied_count: int | None = None
+    moved_count: int | None = None
+    renamed_count: int | None = None
     failed_count: int | None = None
     cancelled_count: int | None = None
     metadata: dict[str, Any] | None = None
@@ -541,6 +550,22 @@ class ChainFileResult:
     def removed(self) -> bool:
         return self.status == "removed"
 
+    @property
+    def filtered(self) -> bool:
+        return self.status == "filtered"
+
+    @property
+    def copied(self) -> bool:
+        return self.status == "copied"
+
+    @property
+    def moved(self) -> bool:
+        return self.status == "moved"
+
+    @property
+    def renamed(self) -> bool:
+        return self.status == "renamed"
+
     def to_view_model(self) -> dict[str, Any]:
         return {
             "source_path": str(self.source_path),
@@ -550,6 +575,10 @@ class ChainFileResult:
             "cancelled": self.cancelled,
             "kept": self.kept,
             "removed": self.removed,
+            "filtered": self.filtered,
+            "copied": self.copied,
+            "moved": self.moved,
+            "renamed": self.renamed,
             "error": self.error,
             "output_path": str(self.output_path) if self.output_path is not None else None,
             "output_paths": [str(path) for path in self.output_paths],
@@ -590,6 +619,22 @@ class ChainRunReport:
         return sum(1 for result in self.results if result.status == "removed")
 
     @property
+    def filtered_count(self) -> int:
+        return sum(1 for result in self.results if result.status == "filtered")
+
+    @property
+    def copied_count(self) -> int:
+        return sum(1 for result in self.results if result.status == "copied")
+
+    @property
+    def moved_count(self) -> int:
+        return sum(1 for result in self.results if result.status == "moved")
+
+    @property
+    def renamed_count(self) -> int:
+        return sum(1 for result in self.results if result.status == "renamed")
+
+    @property
     def failed_count(self) -> int:
         return sum(1 for result in self.results if result.status == "failed")
 
@@ -622,6 +667,10 @@ class ChainRunReport:
             "ok_count": self.ok_count,
             "kept_count": self.kept_count,
             "removed_count": self.removed_count,
+            "filtered_count": self.filtered_count,
+            "copied_count": self.copied_count,
+            "moved_count": self.moved_count,
+            "renamed_count": self.renamed_count,
             "failed_count": self.failed_count,
             "cancelled_count": self.cancelled_count,
             "status": self.status,
@@ -683,6 +732,22 @@ class FileChainExecutionRun:
     @property
     def removed_count(self) -> int:
         return self.report.removed_count
+
+    @property
+    def filtered_count(self) -> int:
+        return self.report.filtered_count
+
+    @property
+    def copied_count(self) -> int:
+        return self.report.copied_count
+
+    @property
+    def moved_count(self) -> int:
+        return self.report.moved_count
+
+    @property
+    def renamed_count(self) -> int:
+        return self.report.renamed_count
 
     @property
     def failed_count(self) -> int:
@@ -939,13 +1004,19 @@ def execute_file_chain(
                 "name-regex/remove-silent destructive filtering requires explicit confirmation; "
                 "run a destructive dry-run preview first and confirm affected paths"
             )
-        if _has_remove_silent_step(preparation.plan.steps):
+        if any(
+            _file_filter_requires_confirmation(step) and _is_remove_silent_step(step)
+            for step in preparation.plan.steps
+        ):
             remove_preview = _preview_remove_silent_for_confirmation(preparation)
             _verify_remove_silent_affected_paths(
                 remove_preview.affected_paths,
                 destructive_confirmation,
             )
-        if _has_name_regex_filter_step(preparation.plan.steps):
+        if any(
+            _file_filter_requires_confirmation(step) and _is_name_regex_filter_step(step)
+            for step in preparation.plan.steps
+        ):
             name_preview = _preview_name_regex_for_confirmation(preparation)
             _verify_name_regex_affected_paths(
                 name_preview.affected_paths,
@@ -1064,6 +1135,10 @@ def execute_file_chain(
             ok_count=report.ok_count,
             kept_count=report.kept_count,
             removed_count=report.removed_count,
+            filtered_count=report.filtered_count,
+            copied_count=report.copied_count,
+            moved_count=report.moved_count,
+            renamed_count=report.renamed_count,
             failed_count=report.failed_count,
             cancelled_count=report.cancelled_count,
             duration_s=report.duration_s,
@@ -1409,20 +1484,32 @@ def _is_chunk_step(step: ChainExecutionStep) -> bool:
 
 def _is_remove_silent_step(step: ChainExecutionStep) -> bool:
     return (
-        step.capability_id == "builtin.destructive.remove_silent"
+        step.capability_id
+        in {"builtin.file_filter.remove_silent", "builtin.destructive.remove_silent"}
         or step.operation_name == "remove_silent"
     )
 
 
 def _is_name_regex_filter_step(step: ChainExecutionStep) -> bool:
     return (
-        step.capability_id == "builtin.destructive.name_regex"
+        step.capability_id in {"builtin.file_filter.name_regex", "builtin.destructive.name_regex"}
         or step.operation_name == "name_regex_filter"
     )
 
 
 def _is_destructive_filter_step(step: ChainExecutionStep) -> bool:
     return _is_remove_silent_step(step) or _is_name_regex_filter_step(step)
+
+
+def _file_filter_action(step: ChainExecutionStep) -> str:
+    return str(step.params.get("action") or "skip").strip().lower()
+
+
+def _file_filter_requires_confirmation(step: ChainExecutionStep) -> bool:
+    return (
+        _is_destructive_filter_step(step)
+        and _file_filter_action(step) in FILE_FILTER_CONFIRMATION_ACTIONS
+    )
 
 
 def _has_remove_silent_step(steps: Iterable[ChainExecutionStep]) -> bool:
@@ -1434,7 +1521,7 @@ def _has_name_regex_filter_step(steps: Iterable[ChainExecutionStep]) -> bool:
 
 
 def _has_destructive_filter_step(steps: Iterable[ChainExecutionStep]) -> bool:
-    return any(_is_destructive_filter_step(step) for step in steps)
+    return any(_file_filter_requires_confirmation(step) for step in steps)
 
 
 def _has_multi_output_step(steps: Iterable[ChainExecutionStep]) -> bool:
@@ -1995,6 +2082,83 @@ def _verify_name_regex_affected_paths(
         )
 
 
+def _file_filter_event_metadata(
+    action_results: Mapping[str, list[Path]],
+    **extra: Any,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {**extra}
+    for status in ("kept", "filtered", "removed", "copied", "moved", "renamed"):
+        paths = action_results.get(status, [])
+        payload[f"{status}_paths"] = [str(path) for path in paths]
+        payload[f"{status}_count"] = len(paths)
+    return payload
+
+
+def _apply_file_filter_action(
+    path: Path,
+    step: ChainExecutionStep,
+    matched: bool,
+) -> tuple[Path | None, str, Path | None]:
+    if not matched:
+        return path, "kept", None
+
+    action = _file_filter_action(step)
+    if action == "skip":
+        return None, "filtered", None
+    if action == "delete":
+        path.unlink()
+        return None, "removed", None
+    if action == "copy":
+        destination = _copy_or_move_destination(path, step)
+        shutil.copy2(path, destination)
+        return path, "copied", destination
+    if action == "move":
+        destination = _copy_or_move_destination(path, step)
+        shutil.move(str(path), str(destination))
+        return destination, "moved", destination
+    if action == "rename":
+        destination = _rename_destination(path, step)
+        path.rename(destination)
+        return destination, "renamed", destination
+    raise AudioCLIError(f"unsupported file filter action: {action!r}")
+
+
+def _copy_or_move_destination(path: Path, step: ChainExecutionStep) -> Path:
+    raw_dir = str(step.params.get("destination_dir") or "").strip()
+    if not raw_dir:
+        raise AudioCLIError(f"destination_dir is required for action {_file_filter_action(step)!r}")
+    destination_dir = Path(raw_dir).expanduser()
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / path.name
+    _reject_existing_action_destination(destination)
+    return destination
+
+
+def _rename_destination(path: Path, step: ChainExecutionStep) -> Path:
+    template = str(step.params.get("rename_template") or "").strip()
+    if not template:
+        raise AudioCLIError("rename_template is required for rename action")
+    try:
+        name = template.format(
+            stem=path.stem,
+            suffix=path.suffix,
+            name=path.name,
+            parent=str(path.parent),
+        )
+    except Exception as exc:
+        raise AudioCLIError(f"invalid rename template: {exc}") from exc
+    if not name or Path(name).name != name:
+        raise AudioCLIError("rename_template must produce a simple file name")
+    destination = path.with_name(name)
+    _reject_existing_action_destination(destination)
+    return destination
+
+
+def _reject_existing_action_destination(destination: Path) -> None:
+    if destination.exists():
+        raise AudioCLIError(f"file filter action destination already exists: {destination}")
+
+
 def _remove_silent_params(step: ChainExecutionStep) -> tuple[float, str]:
     threshold_db = float(step.params.get("threshold_db", -60.0))
     metric = str(step.params.get("metric", "rms"))
@@ -2146,6 +2310,10 @@ def _emit_file_completion_events(
         "ok_count": report.ok_count,
         "kept_count": report.kept_count,
         "removed_count": report.removed_count,
+        "filtered_count": report.filtered_count,
+        "copied_count": report.copied_count,
+        "moved_count": report.moved_count,
+        "renamed_count": report.renamed_count,
         "failed_count": report.failed_count,
         "cancelled_count": report.cancelled_count,
     }
@@ -2548,7 +2716,9 @@ def _execute_chain_for_file(
     temp_dir: Path | None = None
     current_paths = [source]
     collection_expanded = False
-    saw_remove_silent = False
+    saw_file_filter = False
+    file_filter_final_status: str | None = None
+    empty_file_filter_status = "filtered"
     node_count = len(plan.steps)
 
     try:
@@ -2702,10 +2872,16 @@ def _execute_chain_for_file(
                     event_metadata = None
 
                 elif _is_remove_silent_step(step):
-                    saw_remove_silent = True
+                    saw_file_filter = True
                     output_paths = []
-                    removed_paths: list[Path] = []
-                    kept_paths: list[Path] = []
+                    action_results: dict[str, list[Path]] = {
+                        "kept": [],
+                        "filtered": [],
+                        "removed": [],
+                        "copied": [],
+                        "moved": [],
+                        "renamed": [],
+                    }
                     threshold_db, metric = _remove_silent_params(step)
                     for path in input_paths:
                         if _cancel_requested(cancel_token):
@@ -2725,27 +2901,36 @@ def _execute_chain_for_file(
                                 expanded_output_files=expanded_output_files,
                                 preserved_context_dir=None,
                             )
-                        if is_silent(load(path), threshold_db=threshold_db, metric=metric):
-                            path.unlink()
-                            removed_paths.append(path)
-                        else:
-                            kept_paths.append(path)
-                            output_paths.append(path)
-                    behavior = "destructive_filter"
-                    event_metadata = {
-                        "threshold_db": threshold_db,
-                        "metric": metric,
-                        "removed_paths": [str(path) for path in removed_paths],
-                        "kept_paths": [str(path) for path in kept_paths],
-                        "removed_count": len(removed_paths),
-                        "kept_count": len(kept_paths),
-                    }
+                        matched = is_silent(load(path), threshold_db=threshold_db, metric=metric)
+                        next_path, status, action_path = _apply_file_filter_action(
+                            path, step, matched
+                        )
+                        action_results[status].append(action_path or path)
+                        if matched:
+                            empty_file_filter_status = status
+                            if status in {"copied", "moved", "renamed"}:
+                                file_filter_final_status = status
+                        if next_path is not None:
+                            output_paths.append(next_path)
+                    behavior = "file_filter"
+                    event_metadata = _file_filter_event_metadata(
+                        action_results,
+                        action=_file_filter_action(step),
+                        threshold_db=threshold_db,
+                        metric=metric,
+                    )
 
                 elif _is_name_regex_filter_step(step):
-                    saw_remove_silent = True
+                    saw_file_filter = True
                     output_paths = []
-                    removed_paths = []
-                    kept_paths = []
+                    action_results = {
+                        "kept": [],
+                        "filtered": [],
+                        "removed": [],
+                        "copied": [],
+                        "moved": [],
+                        "renamed": [],
+                    }
                     pattern, case_sensitive, matcher = _name_regex_params(step)
                     for path in input_paths:
                         if _cancel_requested(cancel_token):
@@ -2765,21 +2950,24 @@ def _execute_chain_for_file(
                                 expanded_output_files=expanded_output_files,
                                 preserved_context_dir=None,
                             )
-                        if matcher.search(path.name):
-                            path.unlink()
-                            removed_paths.append(path)
-                        else:
-                            kept_paths.append(path)
-                            output_paths.append(path)
-                    behavior = "destructive_filter"
-                    event_metadata = {
-                        "pattern": pattern,
-                        "case_sensitive": case_sensitive,
-                        "removed_paths": [str(path) for path in removed_paths],
-                        "kept_paths": [str(path) for path in kept_paths],
-                        "removed_count": len(removed_paths),
-                        "kept_count": len(kept_paths),
-                    }
+                        matched = bool(matcher.search(path.name))
+                        next_path, status, action_path = _apply_file_filter_action(
+                            path, step, matched
+                        )
+                        action_results[status].append(action_path or path)
+                        if matched:
+                            empty_file_filter_status = status
+                            if status in {"copied", "moved", "renamed"}:
+                                file_filter_final_status = status
+                        if next_path is not None:
+                            output_paths.append(next_path)
+                    behavior = "file_filter"
+                    event_metadata = _file_filter_event_metadata(
+                        action_results,
+                        action=_file_filter_action(step),
+                        pattern=pattern,
+                        case_sensitive=case_sensitive,
+                    )
 
                 else:
                     output_paths = []
@@ -2869,7 +3057,9 @@ def _execute_chain_for_file(
                 expanded_output_files = list(output_paths)
 
             node_status = (
-                "removed" if _is_destructive_filter_step(step) and not output_paths else "ok"
+                empty_file_filter_status
+                if _is_destructive_filter_step(step) and not output_paths
+                else "ok"
             )
             _emit_chain_event(
                 on_event,
@@ -2899,7 +3089,7 @@ def _execute_chain_for_file(
                     source_path=source,
                     path=source,
                     ok=True,
-                    status="removed",
+                    status=empty_file_filter_status,
                     intermediates=artifacts,
                     analysis_results=analysis_results,
                     script_results=script_results,
@@ -2914,9 +3104,9 @@ def _execute_chain_for_file(
         if policy.mode in {"final_only", "destructive"} and temp_dir is not None:
             shutil.rmtree(temp_dir, ignore_errors=True)
             temp_dir = None
-        final_status = (
-            "kept" if saw_remove_silent and _final_materializing_step(plan.steps) is None else "ok"
-        )
+        final_status = "ok"
+        if saw_file_filter and _final_materializing_step(plan.steps) is None:
+            final_status = file_filter_final_status or "kept"
         return ChainFileResult(
             source_path=source,
             path=current_paths[0],

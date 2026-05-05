@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from audiocli.capabilities import CapabilityNode, list_capabilities
+from audiocli.capabilities import get_capability as resolve_capability
 from audiocli.chains import CapabilityChain, ChainNode
 from audiocli.errors import AudioCLIError
 from audiocli.gui.import_export import (
@@ -493,10 +494,16 @@ class InMemoryWorkspaceService:
         return list(self._capabilities)
 
     def get_capability(self, capability_id: str) -> CapabilityNode:
+        capability = self._catalog.get(capability_id)
+        if capability is not None:
+            return capability
         try:
-            return self._catalog[capability_id]
+            capability = resolve_capability(capability_id)
         except KeyError as exc:
             raise ValueError(f"Unknown capability: {capability_id}") from exc
+        if capability.id not in self._catalog:
+            raise ValueError(f"Unknown capability: {capability_id}")
+        return self._catalog[capability.id]
 
     def selected_node(self) -> ChainNode | None:
         if self.selected_node_id is None:
@@ -819,13 +826,21 @@ def _destructive_filter_kinds(request: WorkspaceExecutionRequest) -> list[str]:
         return []
     kinds: list[str] = []
     for step in steps:
+        if str(step.params.get("action") or "skip").strip().lower() not in {
+            "delete",
+            "move",
+            "rename",
+        }:
+            continue
         if (
-            step.capability_id == "builtin.destructive.remove_silent"
+            step.capability_id
+            in {"builtin.file_filter.remove_silent", "builtin.destructive.remove_silent"}
             or step.operation_name == "remove_silent"
         ):
             kinds.append("remove_silent")
         elif (
-            step.capability_id == "builtin.destructive.name_regex"
+            step.capability_id
+            in {"builtin.file_filter.name_regex", "builtin.destructive.name_regex"}
             or step.operation_name == "name_regex_filter"
         ):
             kinds.append("name_regex")

@@ -224,8 +224,9 @@ def test_workspace_name_regex_filter_confirmation_uses_preview_candidates(tmp_pa
     junk = _copy_song(tmp_path / "junk_take.wav")
     keep = _copy_song(tmp_path / "keeper.wav")
     service = InMemoryWorkspaceService()
-    service.add_node("builtin.destructive.name_regex")
+    service.add_node("builtin.file_filter.name_regex")
     service.update_selected_param("pattern", "junk")
+    service.update_selected_param("action", "delete")
     service.set_targets([tmp_path])
     request = service.make_execution_request()
 

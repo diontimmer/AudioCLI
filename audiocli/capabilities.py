@@ -157,6 +157,8 @@ class CapabilityNode:
             return _validate_external_script_hook_params(params or {})
         if self.metadata.get("validator") == "acli_script":
             return _validate_acli_script_params(params or {})
+        if self.metadata.get("validator") == "remove_silent_filter":
+            return _validate_remove_silent_filter_params(params or {})
         if self.metadata.get("validator") == "name_regex_filter":
             return _validate_name_regex_filter_params(params or {})
         return validate_parameters(self.parameters, params or {})
@@ -267,15 +269,15 @@ _MULTI_OUTPUT_SAFETY = SafetySemantics(
         "Downstream audio filters are applied once per produced chunk file.",
     ],
 )
-_DESTRUCTIVE_FILTER_SAFETY = SafetySemantics(
-    classification="destructive_filter",
-    destructive=True,
-    requires_confirmation=True,
+_FILE_FILTER_SAFETY = SafetySemantics(
+    classification="file_filter",
+    destructive=False,
+    requires_confirmation=False,
     writes_files=True,
     external=False,
     notes=[
-        "This node deletes matching files and filters them out of downstream chain execution.",
-        "Use dry-run preview to inspect affected files, then pass an explicit destructive confirmation before execution.",
+        "File filter nodes match files and apply a selected file action such as skip, delete, copy, move, or rename.",
+        "Delete, move, and rename require explicit confirmation before execution.",
     ],
 )
 _EXTERNAL_PLUGIN_SAFETY = SafetySemantics(
@@ -324,8 +326,12 @@ _KNOWN_PARAMETER_CHOICES: dict[tuple[str, str], tuple[Any, ...]] = {
 _KNOWN_PARAMETER_NORMALIZERS: dict[tuple[str, str], str] = {
     ("convert", "format"): "format",
 }
+_FILE_FILTER_ACTION_CHOICES = ("skip", "delete", "copy", "move", "rename")
+_FILE_FILTER_CONFIRMATION_ACTIONS = frozenset({"delete", "move", "rename"})
 _CAPABILITY_ALIASES: dict[str, str] = {
-    "builtin.filtering.remove_silent": "builtin.destructive.remove_silent",
+    "builtin.filtering.remove_silent": "builtin.file_filter.remove_silent",
+    "builtin.destructive.remove_silent": "builtin.file_filter.remove_silent",
+    "builtin.destructive.name_regex": "builtin.file_filter.name_regex",
     "builtin.filter.vst": "builtin.external_plugin.vst",
     "builtin.plugin.vst": "builtin.external_plugin.vst",
 }
@@ -667,8 +673,34 @@ def _validate_acli_script_params(params: dict[str, Any]) -> ValidationResult:
     return ValidationResult(valid=not errors, errors=errors, values=values)
 
 
+def _validate_remove_silent_filter_params(params: dict[str, Any]) -> ValidationResult:
+    """Validate silent-file filter params before execution."""
+
+    parameters = [
+        CapabilityParameter(
+            name="threshold_db",
+            type="float",
+            display_name="Threshold Db",
+            required=False,
+            default=-60.0,
+            control_hint="number",
+        ),
+        CapabilityParameter(
+            name="metric",
+            type="str",
+            display_name="Metric",
+            required=False,
+            default="rms",
+            control_hint="select",
+            choices=["rms", "peak"],
+        ),
+        *_file_filter_action_parameters(),
+    ]
+    return _validate_file_filter_params(parameters, params)
+
+
 def _validate_name_regex_filter_params(params: dict[str, Any]) -> ValidationResult:
-    """Validate filename-regex destructive filter params before execution."""
+    """Validate filename-regex file filter params before execution."""
 
     parameters = [
         CapabilityParameter(
@@ -687,8 +719,9 @@ def _validate_name_regex_filter_params(params: dict[str, Any]) -> ValidationResu
             default=False,
             control_hint="toggle",
         ),
+        *_file_filter_action_parameters(),
     ]
-    result = validate_parameters(parameters, params)
+    result = _validate_file_filter_params(parameters, params)
     errors = list(result.errors)
     values = dict(result.values)
     pattern = values.get("pattern")
@@ -707,9 +740,37 @@ def _validate_name_regex_filter_params(params: dict[str, Any]) -> ValidationResu
                     received=_received(pattern),
                 )
             )
-    return ValidationResult(
-        valid=not errors, errors=errors, values=values if not errors else values
-    )
+    return ValidationResult(valid=not errors, errors=errors, values=values)
+
+
+def _validate_file_filter_params(
+    parameters: list[CapabilityParameter], params: dict[str, Any]
+) -> ValidationResult:
+    result = validate_parameters(parameters, params)
+    errors = list(result.errors)
+    values = dict(result.values)
+    action = str(values.get("action") or "skip")
+    if result.valid and action in {"copy", "move"} and _is_missing(values.get("destination_dir")):
+        errors.append(
+            ValidationError(
+                parameter="destination_dir",
+                code="missing_required_for_action",
+                message=f"Parameter 'destination_dir' is required when action is {action!r}.",
+                expected_type="Path",
+                received=_received(values.get("destination_dir")),
+            )
+        )
+    if result.valid and action == "rename" and _is_missing(values.get("rename_template")):
+        errors.append(
+            ValidationError(
+                parameter="rename_template",
+                code="missing_required_for_action",
+                message="Parameter 'rename_template' is required when action is 'rename'.",
+                expected_type="str",
+                received=_received(values.get("rename_template")),
+            )
+        )
+    return ValidationResult(valid=not errors, errors=errors, values=values)
 
 
 def _validate_existing_script_path(
@@ -1102,28 +1163,43 @@ def _remove_silent_capability() -> CapabilityNode:
             control_hint="select",
             choices=["rms", "peak"],
         ),
+        *_file_filter_action_parameters(),
     ]
-    defaults = {"threshold_db": -60.0, "metric": "rms"}
-    validation_state = validate_parameters(parameters, defaults)
+    defaults = {
+        "threshold_db": -60.0,
+        "metric": "rms",
+        "action": "skip",
+        "destination_dir": "",
+        "rename_template": "{stem}{suffix}",
+    }
+    validation_state = _validate_remove_silent_filter_params(defaults)
     return CapabilityNode(
-        id="builtin.destructive.remove_silent",
-        type="destructive_filter",
-        display_name="Remove Silent",
-        description=(
-            "Delete audio files whose RMS or peak level is below a threshold and "
-            "filter them out of downstream execution."
-        ),
+        id="builtin.file_filter.remove_silent",
+        type="file_filter",
+        display_name="Silent File Filter",
+        description="Match audio files whose RMS or peak level is below a threshold and apply a file action.",
         input_shape=_AUDIO_IN,
         output_shape=_DESTRUCTIVE_FILTER_OUT,
-        safety=_DESTRUCTIVE_FILTER_SAFETY,
+        safety=_FILE_FILTER_SAFETY,
         parameters=parameters,
         defaults=defaults,
         metadata={
+            "validator": "remove_silent_filter",
             "dry_run_supported": True,
-            "destructive_filter": True,
+            "file_filter": True,
             "filters_file_set": True,
+            "confirmation_actions": sorted(_FILE_FILTER_CONFIRMATION_ACTIONS),
             "affected_paths_parameter": "affected_paths",
-            "result_statuses": ["kept", "removed", "failed", "cancelled"],
+            "result_statuses": [
+                "kept",
+                "filtered",
+                "removed",
+                "copied",
+                "moved",
+                "renamed",
+                "failed",
+                "cancelled",
+            ],
             "affected_summary_schema": {
                 "removed_candidates": "list[str]",
                 "kept": "list[str]",
@@ -1156,28 +1232,43 @@ def _name_regex_filter_capability() -> CapabilityNode:
             default=False,
             control_hint="toggle",
         ),
+        *_file_filter_action_parameters(),
     ]
-    validation_state = _validate_name_regex_filter_params({"pattern": ".*"})
+    defaults = {
+        "case_sensitive": False,
+        "action": "skip",
+        "destination_dir": "",
+        "rename_template": "{stem}{suffix}",
+    }
+    validation_state = _validate_name_regex_filter_params({"pattern": ".*", **defaults})
     return CapabilityNode(
-        id="builtin.destructive.name_regex",
-        type="destructive_filter",
+        id="builtin.file_filter.name_regex",
+        type="file_filter",
         display_name="Name Regex Filter",
-        description=(
-            "Delete audio files whose filename matches a regex and filter them out of downstream execution."
-        ),
+        description="Match audio files whose filename matches a regex and apply a file action.",
         input_shape=_AUDIO_IN,
         output_shape=_DESTRUCTIVE_FILTER_OUT,
-        safety=_DESTRUCTIVE_FILTER_SAFETY,
+        safety=_FILE_FILTER_SAFETY,
         parameters=parameters,
-        defaults={"case_sensitive": False},
+        defaults=defaults,
         metadata={
             "validator": "name_regex_filter",
             "dry_run_supported": True,
-            "destructive_filter": True,
+            "file_filter": True,
             "filters_file_set": True,
             "match_target": "path.name",
+            "confirmation_actions": sorted(_FILE_FILTER_CONFIRMATION_ACTIONS),
             "affected_paths_parameter": "affected_paths",
-            "result_statuses": ["kept", "removed", "failed", "cancelled"],
+            "result_statuses": [
+                "kept",
+                "filtered",
+                "removed",
+                "copied",
+                "moved",
+                "renamed",
+                "failed",
+                "cancelled",
+            ],
             "affected_summary_schema": {
                 "removed_candidates": "list[str]",
                 "kept": "list[str]",
@@ -1188,6 +1279,41 @@ def _name_regex_filter_capability() -> CapabilityNode:
         validation_state=validation_state,
         operation_name="name_regex_filter",
     )
+
+
+def _file_filter_action_parameters() -> list[CapabilityParameter]:
+    return [
+        CapabilityParameter(
+            name="action",
+            type="str",
+            display_name="Action",
+            description="Action to apply to files matched by this filter.",
+            required=False,
+            default="skip",
+            control_hint="select",
+            choices=list(_FILE_FILTER_ACTION_CHOICES),
+        ),
+        CapabilityParameter(
+            name="destination_dir",
+            type="Path",
+            display_name="Destination Folder",
+            description="Required for copy and move actions.",
+            required=False,
+            default="",
+            control_hint="path",
+        ),
+        CapabilityParameter(
+            name="rename_template",
+            type="str",
+            display_name="Rename Template",
+            description=(
+                "Template for rename action. Supports {stem}, {suffix}, {name}, and {parent}."
+            ),
+            required=False,
+            default="{stem}{suffix}",
+            control_hint="text",
+        ),
+    ]
 
 
 def _vst_external_plugin_capability() -> CapabilityNode:

@@ -843,8 +843,6 @@ class MainWindow(QMainWindow):
         self._refresh_job_panels()
 
     def _destructive_confirmation_if_needed(self, request: Any) -> dict[str, Any] | bool | None:
-        if request.output_mode != "destructive":
-            return None
         try:
             impact = self.service.preview_destructive_impact(request)
         except AudioCLIError as exc:
@@ -853,6 +851,8 @@ class MainWindow(QMainWindow):
             self.refresh_workspace()
             return False
         affected_paths = list(impact.get("affected_paths") or [])
+        if request.output_mode != "destructive" and not affected_paths:
+            return None
         if self.test_safe:
             return {"confirmed": False, "affected_paths": affected_paths}
 
