@@ -15,6 +15,7 @@ from audiocli.gui.service import InMemoryWorkspaceService
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+QtGui = pytest.importorskip("PySide6.QtGui")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 
 
@@ -68,6 +69,33 @@ def test_main_window_construction_fake_service_and_form_rendering(qapp) -> None:
 
     assert window.centralWidget().objectName() == "main_workspace_splitter"
     assert window.findChildren(QtWidgets.QTabWidget) == []
+
+    toolbar = window.findChild(QtWidgets.QToolBar, "main_action_toolbar")
+    assert toolbar is not None
+    assert [action.objectName() for action in toolbar.actions()] == [
+        "load_saved_chain_action",
+        "save_native_chain_action",
+        "import_native_chain_action",
+        "import_acli_chain_action",
+        "export_acli_chain_action",
+        "separator",
+        "refresh_saved_chains_action",
+        "rename_saved_chain_action",
+        "edit_saved_chain_notes_action",
+    ]
+    assert window.findChild(QtWidgets.QPushButton, "load_saved_chain_button") is None
+    assert window.findChild(QtWidgets.QPushButton, "import_native_chain_button") is None
+    assert window.findChild(QtWidgets.QPushButton, "export_native_chain_button") is None
+
+    menu_action_names = {action.objectName() for action in window.findChildren(QtGui.QAction)}
+    assert {
+        "load_saved_chain_action",
+        "save_native_chain_action",
+        "import_native_chain_action",
+        "export_acli_chain_action",
+        "import_acli_chain_action",
+        "refresh_saved_chains_action",
+    }.issubset(menu_action_names)
 
     browser = window.findChild(QtWidgets.QTreeWidget, "capability_browser")
     chain = window.findChild(QtWidgets.QListWidget, "chain_editor")

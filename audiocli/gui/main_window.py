@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import Qt, QThread
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QSplitter,
+    QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -65,11 +67,104 @@ class MainWindow(QMainWindow):
         self._parameter_widgets: dict[str, QWidget] = {}
         self._run_thread: QThread | None = None
         self._run_worker: Any | None = None
+        self._global_actions: dict[str, QAction] = {}
 
         self.setWindowTitle("AudioCLI Workspace")
         self.resize(1280, 760)
+        self._build_action_bar()
         self._build_workspace()
         self.refresh_workspace()
+
+    def _build_action_bar(self) -> None:
+        toolbar = QToolBar("AudioCLI", self)
+        toolbar.setObjectName("main_action_toolbar")
+        toolbar.setMovable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+
+        file_menu = self.menuBar().addMenu("&File")
+        library_menu = self.menuBar().addMenu("&Library")
+
+        load_saved = self._make_action(
+            "load_saved_chain_action",
+            "Load",
+            self._load_saved_chain_selection,
+            shortcut=QKeySequence.StandardKey.Open,
+        )
+        save_native = self._make_action(
+            "save_native_chain_action",
+            "Save Native",
+            self._export_native_chain_file,
+            shortcut=QKeySequence.StandardKey.Save,
+        )
+        import_native = self._make_action(
+            "import_native_chain_action",
+            "Import Native",
+            self._import_native_chain_file,
+        )
+        export_acli = self._make_action(
+            "export_acli_chain_action",
+            "Export .acli",
+            self._export_acli_chain_file,
+        )
+        import_acli = self._make_action(
+            "import_acli_chain_action",
+            "Import .acli",
+            self._import_acli_chain_file,
+        )
+        refresh_saved = self._make_action(
+            "refresh_saved_chains_action",
+            "Refresh",
+            self._refresh_saved_chain_library,
+            shortcut=QKeySequence.StandardKey.Refresh,
+        )
+        rename_saved = self._make_action(
+            "rename_saved_chain_action",
+            "Rename",
+            self._rename_saved_chain_selection,
+        )
+        edit_notes = self._make_action(
+            "edit_saved_chain_notes_action",
+            "Notes",
+            self._edit_saved_chain_notes_selection,
+        )
+
+        for action in (load_saved, save_native, import_native, import_acli, export_acli):
+            toolbar.addAction(action)
+        separator = toolbar.addSeparator()
+        separator.setObjectName("separator")
+        for action in (refresh_saved, rename_saved, edit_notes):
+            toolbar.addAction(action)
+
+        file_menu.addAction(load_saved)
+        file_menu.addAction(save_native)
+        file_menu.addSeparator()
+        file_menu.addAction(import_native)
+        file_menu.addAction(import_acli)
+        file_menu.addSeparator()
+        file_menu.addAction(export_acli)
+
+        library_menu.addAction(refresh_saved)
+        library_menu.addAction(load_saved)
+        library_menu.addSeparator()
+        library_menu.addAction(rename_saved)
+        library_menu.addAction(edit_notes)
+
+    def _make_action(
+        self,
+        object_name: str,
+        text: str,
+        callback: Callable[[], None],
+        *,
+        shortcut: QKeySequence.StandardKey | None = None,
+    ) -> QAction:
+        action = QAction(text, self)
+        action.setObjectName(object_name)
+        if shortcut is not None:
+            action.setShortcut(QKeySequence(shortcut))
+        action.triggered.connect(callback)
+        self._global_actions[object_name] = action
+        return action
 
     def _build_workspace(self) -> None:
         workspace = QSplitter(Qt.Orientation.Horizontal, self)
@@ -113,49 +208,6 @@ class MainWindow(QMainWindow):
         self.saved_chain_list.itemDoubleClicked.connect(self._load_saved_chain_selection)
         layout.addWidget(self.saved_chain_list, 1)
 
-        library_buttons = QHBoxLayout()
-        refresh_library = QPushButton("Refresh")
-        refresh_library.setObjectName("refresh_saved_chains_button")
-        refresh_library.clicked.connect(self._refresh_saved_chain_library)
-        library_buttons.addWidget(refresh_library)
-
-        load_library = QPushButton("Load")
-        load_library.setObjectName("load_saved_chain_button")
-        load_library.clicked.connect(self._load_saved_chain_selection)
-        library_buttons.addWidget(load_library)
-
-        rename_library = QPushButton("Rename")
-        rename_library.setObjectName("rename_saved_chain_button")
-        rename_library.clicked.connect(self._rename_saved_chain_selection)
-        library_buttons.addWidget(rename_library)
-
-        notes_library = QPushButton("Edit notes")
-        notes_library.setObjectName("edit_saved_chain_notes_button")
-        notes_library.clicked.connect(self._edit_saved_chain_notes_selection)
-        library_buttons.addWidget(notes_library)
-        layout.addLayout(library_buttons)
-
-        import_export_buttons = QHBoxLayout()
-        import_native = QPushButton("Import Native")
-        import_native.setObjectName("import_native_chain_button")
-        import_native.clicked.connect(self._import_native_chain_file)
-        import_export_buttons.addWidget(import_native)
-
-        export_native = QPushButton("Export Native")
-        export_native.setObjectName("export_native_chain_button")
-        export_native.clicked.connect(self._export_native_chain_file)
-        import_export_buttons.addWidget(export_native)
-
-        import_acli = QPushButton("Import .acli")
-        import_acli.setObjectName("import_acli_chain_button")
-        import_acli.clicked.connect(self._import_acli_chain_file)
-        import_export_buttons.addWidget(import_acli)
-
-        export_acli = QPushButton("Export .acli")
-        export_acli.setObjectName("export_acli_chain_button")
-        export_acli.clicked.connect(self._export_acli_chain_file)
-        import_export_buttons.addWidget(export_acli)
-        layout.addLayout(import_export_buttons)
         return group
 
     def _build_chain_editor(self) -> QWidget:
