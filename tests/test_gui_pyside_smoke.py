@@ -73,16 +73,21 @@ def test_main_window_construction_fake_service_and_form_rendering(qapp) -> None:
     toolbar = window.findChild(QtWidgets.QToolBar, "main_action_toolbar")
     assert toolbar is not None
     assert [action.objectName() for action in toolbar.actions()] == [
-        "load_saved_chain_action",
+        "load_saved_chain_menu_widget_action",
         "save_native_chain_action",
         "import_native_chain_action",
         "import_acli_chain_action",
         "export_acli_chain_action",
         "separator",
         "refresh_saved_chains_action",
-        "rename_saved_chain_action",
-        "edit_saved_chain_notes_action",
     ]
+    load_saved_button = window.findChild(QtWidgets.QToolButton, "load_saved_chain_menu_button")
+    load_saved_menu = window.findChild(QtWidgets.QMenu, "load_saved_chain_menu")
+    assert load_saved_button is not None
+    assert load_saved_menu is not None
+    assert load_saved_button.menu() is load_saved_menu
+    assert window.findChild(QtWidgets.QLabel, "saved_chain_library_label") is None
+    assert window.findChild(QtWidgets.QListWidget, "saved_chain_library") is None
     assert window.findChild(QtWidgets.QPushButton, "load_saved_chain_button") is None
     assert window.findChild(QtWidgets.QPushButton, "import_native_chain_button") is None
     assert window.findChild(QtWidgets.QPushButton, "export_native_chain_button") is None

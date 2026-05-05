@@ -18,12 +18,12 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QToolBar,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -68,6 +69,8 @@ class MainWindow(QMainWindow):
         self._run_thread: QThread | None = None
         self._run_worker: Any | None = None
         self._global_actions: dict[str, QAction] = {}
+        self._saved_chain_menu: QMenu | None = None
+        self._load_saved_chain_button: QToolButton | None = None
 
         self.setWindowTitle("AudioCLI Workspace")
         self.resize(1280, 760)
@@ -87,8 +90,8 @@ class MainWindow(QMainWindow):
 
         load_saved = self._make_action(
             "load_saved_chain_action",
-            "Load",
-            self._load_saved_chain_selection,
+            "Load Saved",
+            self._show_saved_chain_menu,
             shortcut=QKeySequence.StandardKey.Open,
         )
         save_native = self._make_action(
@@ -114,27 +117,28 @@ class MainWindow(QMainWindow):
         )
         refresh_saved = self._make_action(
             "refresh_saved_chains_action",
-            "Refresh",
+            "Refresh Saved",
             self._refresh_saved_chain_library,
             shortcut=QKeySequence.StandardKey.Refresh,
         )
-        rename_saved = self._make_action(
-            "rename_saved_chain_action",
-            "Rename",
-            self._rename_saved_chain_selection,
-        )
-        edit_notes = self._make_action(
-            "edit_saved_chain_notes_action",
-            "Notes",
-            self._edit_saved_chain_notes_selection,
-        )
 
-        for action in (load_saved, save_native, import_native, import_acli, export_acli):
+        self._saved_chain_menu = QMenu("Load Saved Chains", self)
+        self._saved_chain_menu.setObjectName("load_saved_chain_menu")
+        self._saved_chain_menu.aboutToShow.connect(self._populate_saved_chain_menu)
+        self._load_saved_chain_button = QToolButton(self)
+        self._load_saved_chain_button.setObjectName("load_saved_chain_menu_button")
+        self._load_saved_chain_button.setDefaultAction(load_saved)
+        self._load_saved_chain_button.setMenu(self._saved_chain_menu)
+        self._load_saved_chain_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._load_saved_chain_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+
+        load_widget_action = toolbar.addWidget(self._load_saved_chain_button)
+        load_widget_action.setObjectName("load_saved_chain_menu_widget_action")
+        for action in (save_native, import_native, import_acli, export_acli):
             toolbar.addAction(action)
         separator = toolbar.addSeparator()
         separator.setObjectName("separator")
-        for action in (refresh_saved, rename_saved, edit_notes):
-            toolbar.addAction(action)
+        toolbar.addAction(refresh_saved)
 
         file_menu.addAction(load_saved)
         file_menu.addAction(save_native)
@@ -146,9 +150,6 @@ class MainWindow(QMainWindow):
 
         library_menu.addAction(refresh_saved)
         library_menu.addAction(load_saved)
-        library_menu.addSeparator()
-        library_menu.addAction(rename_saved)
-        library_menu.addAction(edit_notes)
 
     def _make_action(
         self,
@@ -197,16 +198,6 @@ class MainWindow(QMainWindow):
         add_button.setObjectName("add_capability_button")
         add_button.clicked.connect(self._add_browser_selection)
         layout.addWidget(add_button)
-
-        library_label = QLabel("Saved Chains")
-        library_label.setObjectName("saved_chain_library_label")
-        layout.addWidget(library_label)
-
-        self.saved_chain_list = QListWidget()
-        self.saved_chain_list.setObjectName("saved_chain_library")
-        self.saved_chain_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.saved_chain_list.itemDoubleClicked.connect(self._load_saved_chain_selection)
-        layout.addWidget(self.saved_chain_list, 1)
 
         return group
 
@@ -397,33 +388,44 @@ class MainWindow(QMainWindow):
         self.capability_browser.expandAll()
 
     def _refresh_saved_chain_library(self) -> None:
-        if not hasattr(self, "saved_chain_list"):
+        self._populate_saved_chain_menu()
+
+    def _populate_saved_chain_menu(self) -> None:
+        if self._saved_chain_menu is None:
             return
-        selected_path = self._selected_saved_chain_path()
-        self.saved_chain_list.blockSignals(True)
-        self.saved_chain_list.clear()
-        for entry in self.service.list_saved_chains():
-            marker = "✓" if entry.valid else "!"
-            text = f"{entry.name}   {marker}"
-            if entry.error:
-                text += f" — {entry.error}"
-            item = QListWidgetItem(text)
-            item.setData(USER_ROLE, entry.path)
-            item.setToolTip(entry.description or entry.notes or entry.error or entry.path)
-            self.saved_chain_list.addItem(item)
-            if entry.path == selected_path:
-                self.saved_chain_list.setCurrentItem(item)
-        self.saved_chain_list.blockSignals(False)
+        self._saved_chain_menu.clear()
+        entries = self.service.list_saved_chains()
+        if not entries:
+            empty_action = self._saved_chain_menu.addAction("No saved chains")
+            empty_action.setObjectName("no_saved_chains_action")
+            empty_action.setEnabled(False)
+            return
 
-    def _selected_saved_chain_path(self) -> str:
-        if not hasattr(self, "saved_chain_list"):
-            return ""
-        item = self.saved_chain_list.currentItem()
-        path = item.data(USER_ROLE) if item is not None else ""
-        return str(path or "")
+        for index, entry in enumerate(entries):
+            label = entry.name if entry.valid else f"{entry.name} — invalid"
+            action = QAction(label, self._saved_chain_menu)
+            action.setObjectName(f"load_saved_chain_entry_action_{index}")
+            action.setData(entry.path)
+            action.setToolTip(entry.description or entry.notes or entry.error or entry.path)
+            action.setEnabled(entry.valid)
+            action.triggered.connect(
+                lambda _checked=False, path=entry.path: self._load_saved_chain_path(path)
+            )
+            self._saved_chain_menu.addAction(action)
 
-    def _load_saved_chain_selection(self, *_args: object) -> None:
-        path = self._selected_saved_chain_path()
+    def _show_saved_chain_menu(self, *_args: object) -> None:
+        self._populate_saved_chain_menu()
+        if self._saved_chain_menu is None:
+            return
+        if self._load_saved_chain_button is not None:
+            button_pos = self._load_saved_chain_button.mapToGlobal(
+                self._load_saved_chain_button.rect().bottomLeft()
+            )
+            self._saved_chain_menu.popup(button_pos)
+            return
+        self._saved_chain_menu.popup(self.mapToGlobal(self.rect().topLeft()))
+
+    def _load_saved_chain_path(self, path: str) -> None:
         if not path:
             return
         try:
@@ -433,58 +435,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Saved chain", str(exc))
             self.service.job.logs.append(f"Saved chain load failed: {exc}")
         self.refresh_workspace()
-
-    def _rename_saved_chain_selection(self) -> None:
-        path = self._selected_saved_chain_path()
-        if not path:
-            return
-        if self.test_safe:
-            return
-        current = next(
-            (entry for entry in self.service.list_saved_chains() if entry.path == path), None
-        )
-        name, ok = QInputDialog.getText(
-            self,
-            "Rename saved chain",
-            "Chain name:",
-            text=current.name if current is not None else "",
-        )
-        if ok and name.strip():
-            try:
-                self.service.rename_saved_chain(path, name)
-            except Exception as exc:
-                QMessageBox.warning(self, "Saved chain", str(exc))
-            self.refresh_workspace()
-
-    def _edit_saved_chain_notes_selection(self) -> None:
-        path = self._selected_saved_chain_path()
-        if not path:
-            return
-        if self.test_safe:
-            return
-        current = next(
-            (entry for entry in self.service.list_saved_chains() if entry.path == path), None
-        )
-        description, ok = QInputDialog.getMultiLineText(
-            self,
-            "Edit saved-chain description",
-            "Description:",
-            current.description if current is not None else "",
-        )
-        if not ok:
-            return
-        notes, ok = QInputDialog.getMultiLineText(
-            self,
-            "Edit saved-chain notes",
-            "Notes:",
-            current.notes if current is not None else "",
-        )
-        if ok:
-            try:
-                self.service.update_saved_chain_notes(path, description=description, notes=notes)
-            except Exception as exc:
-                QMessageBox.warning(self, "Saved chain", str(exc))
-            self.refresh_workspace()
 
     def _import_native_chain_file(self) -> None:
         if self.test_safe:
