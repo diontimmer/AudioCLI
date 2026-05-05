@@ -6,16 +6,18 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import Qt, QThread
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QSize, Qt, QThread
+from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -30,6 +32,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QSplitter,
+    QStyle,
     QToolBar,
     QToolButton,
     QTreeWidget,
@@ -42,6 +45,7 @@ from audiocli.capabilities import CapabilityNode
 from audiocli.errors import AudioCLIError
 from audiocli.gui.qt_compat import is_checked_state
 from audiocli.gui.service import InMemoryWorkspaceService
+from audiocli.gui.theme import apply_workspace_theme, repolish
 
 USER_ROLE = int(Qt.ItemDataRole.UserRole)
 
@@ -71,17 +75,23 @@ class MainWindow(QMainWindow):
         self._global_actions: dict[str, QAction] = {}
         self._saved_chain_menu: QMenu | None = None
         self._load_saved_chain_button: QToolButton | None = None
+        self._run_dialog: QDialog | None = None
 
         self.setWindowTitle("AudioCLI Workspace")
         self.resize(1280, 760)
+        app = QApplication.instance()
+        if app is not None:
+            apply_workspace_theme(app)
         self._build_action_bar()
         self._build_workspace()
+        self._build_run_dialog()
         self.refresh_workspace()
 
     def _build_action_bar(self) -> None:
         toolbar = QToolBar("AudioCLI", self)
         toolbar.setObjectName("main_action_toolbar")
         toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(16, 16))
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
@@ -90,39 +100,39 @@ class MainWindow(QMainWindow):
 
         load_saved = self._make_action(
             "load_saved_chain_action",
-            "Load Saved",
+            "Open",
             self._show_saved_chain_menu,
             shortcut=QKeySequence.StandardKey.Open,
         )
         save_native = self._make_action(
             "save_native_chain_action",
-            "Save Native",
+            "Save",
             self._export_native_chain_file,
             shortcut=QKeySequence.StandardKey.Save,
         )
         import_native = self._make_action(
             "import_native_chain_action",
-            "Import Native",
+            "Import Chain",
             self._import_native_chain_file,
         )
         export_acli = self._make_action(
             "export_acli_chain_action",
-            "Export .acli",
+            "Export Script",
             self._export_acli_chain_file,
         )
         import_acli = self._make_action(
             "import_acli_chain_action",
-            "Import .acli",
+            "Import Script",
             self._import_acli_chain_file,
         )
         refresh_saved = self._make_action(
             "refresh_saved_chains_action",
-            "Refresh Saved",
+            "Refresh",
             self._refresh_saved_chain_library,
             shortcut=QKeySequence.StandardKey.Refresh,
         )
 
-        self._saved_chain_menu = QMenu("Load Saved Chains", self)
+        self._saved_chain_menu = QMenu("Saved Chains", self)
         self._saved_chain_menu.setObjectName("load_saved_chain_menu")
         self._saved_chain_menu.aboutToShow.connect(self._populate_saved_chain_menu)
         self._load_saved_chain_button = QToolButton(self)
@@ -167,9 +177,39 @@ class MainWindow(QMainWindow):
         self._global_actions[object_name] = action
         return action
 
+    def _standard_icon(
+        self,
+        name: str,
+        fallback: QStyle.StandardPixmap = QStyle.StandardPixmap.SP_FileIcon,
+    ) -> QIcon:
+        standard_pixmap = getattr(QStyle.StandardPixmap, name, fallback)
+        return self.style().standardIcon(standard_pixmap)
+
+    def _configure_icon_button(
+        self,
+        button: QPushButton,
+        icon_name: str,
+        label: str,
+        *,
+        role: str = "icon",
+        fallback: QStyle.StandardPixmap = QStyle.StandardPixmap.SP_FileIcon,
+        size: QSize | None = None,
+    ) -> QPushButton:
+        button.setText("")
+        button.setIcon(self._standard_icon(icon_name, fallback))
+        button.setIconSize(QSize(17, 17))
+        button.setToolTip(_compact_tooltip(label, limit=64))
+        button.setAccessibleName(label)
+        button.setFixedSize(size or QSize(36, 32))
+        button.setProperty("role", role)
+        return button
+
     def _build_workspace(self) -> None:
         workspace = QSplitter(Qt.Orientation.Horizontal, self)
         workspace.setObjectName("main_workspace_splitter")
+        workspace.setChildrenCollapsible(False)
+        workspace.setContentsMargins(10, 8, 10, 10)
+        workspace.setHandleWidth(4)
         self.setCentralWidget(workspace)
 
         workspace.addWidget(self._build_capability_browser())
@@ -178,54 +218,100 @@ class MainWindow(QMainWindow):
         workspace.setSizes([320, 360, 560])
 
     def _build_capability_browser(self) -> QWidget:
-        group = QGroupBox("Capability Browser")
+        group = QGroupBox("Tools")
         layout = QVBoxLayout(group)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(10)
 
         self.capability_filter = QLineEdit()
         self.capability_filter.setObjectName("capability_filter")
-        self.capability_filter.setPlaceholderText("Filter capabilities…")
+        self.capability_filter.setPlaceholderText("Search tools")
         self.capability_filter.textChanged.connect(self._populate_capability_browser)
         layout.addWidget(self.capability_filter)
 
         self.capability_browser = QTreeWidget()
         self.capability_browser.setObjectName("capability_browser")
         self.capability_browser.setHeaderLabels(["Capability"])
+        self.capability_browser.header().setVisible(False)
         self.capability_browser.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.capability_browser.setAlternatingRowColors(False)
+        self.capability_browser.setAnimated(True)
+        self.capability_browser.setIndentation(20)
+        self.capability_browser.setUniformRowHeights(True)
         self.capability_browser.itemDoubleClicked.connect(self._add_browser_selection)
         layout.addWidget(self.capability_browser, 1)
 
-        add_button = QPushButton("Add selected to chain")
+        add_button = QPushButton("Add to chain")
         add_button.setObjectName("add_capability_button")
+        add_button.setProperty("role", "accent")
         add_button.clicked.connect(self._add_browser_selection)
         layout.addWidget(add_button)
 
         return group
 
     def _build_chain_editor(self) -> QWidget:
-        group = QGroupBox("Ordered Chain Editor")
+        group = QGroupBox("Chain")
         layout = QVBoxLayout(group)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(10)
 
         self.chain_list = QListWidget()
         self.chain_list.setObjectName("chain_editor")
         self.chain_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.chain_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.chain_list.setIconSize(QSize(16, 16))
+        self.chain_list.setSpacing(5)
         self.chain_list.currentItemChanged.connect(self._select_chain_item)
         layout.addWidget(self.chain_list, 1)
 
         button_row = QHBoxLayout()
-        self.move_up_button = QPushButton("Up")
+        button_row.setSpacing(8)
+        self.move_up_button = QPushButton()
         self.move_up_button.setObjectName("move_node_up_button")
+        self._configure_icon_button(
+            self.move_up_button,
+            "SP_ArrowUp",
+            "Move selected tool up",
+            role="icon",
+        )
         self.move_up_button.clicked.connect(lambda: self._move_selected(-1))
         button_row.addWidget(self.move_up_button)
 
-        self.move_down_button = QPushButton("Down")
+        self.move_down_button = QPushButton()
         self.move_down_button.setObjectName("move_node_down_button")
+        self._configure_icon_button(
+            self.move_down_button,
+            "SP_ArrowDown",
+            "Move selected tool down",
+            role="icon",
+        )
         self.move_down_button.clicked.connect(lambda: self._move_selected(1))
         button_row.addWidget(self.move_down_button)
 
-        self.remove_button = QPushButton("Remove")
+        self.remove_button = QPushButton()
         self.remove_button.setObjectName("remove_node_button")
+        self._configure_icon_button(
+            self.remove_button,
+            "SP_TrashIcon",
+            "Remove selected tool",
+            role="iconDanger",
+            fallback=QStyle.StandardPixmap.SP_DialogCancelButton,
+        )
         self.remove_button.clicked.connect(self._remove_selected)
         button_row.addWidget(self.remove_button)
+
+        self.open_run_button = QPushButton()
+        self.open_run_button.setObjectName("open_run_dialog_button")
+        self._configure_icon_button(
+            self.open_run_button,
+            "SP_MediaPlay",
+            "Open run controls",
+            role="iconPrimary",
+            size=QSize(40, 32),
+        )
+        self.open_run_button.clicked.connect(self._show_run_dialog)
+        button_row.addWidget(self.open_run_button)
+        button_row.addStretch(1)
         layout.addLayout(button_row)
 
         self.chain_status = QLabel()
@@ -235,55 +321,111 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_detail_panel(self) -> QWidget:
-        detail_splitter = QSplitter(Qt.Orientation.Vertical)
-        detail_splitter.setObjectName("detail_panel_splitter")
-
-        self.parameter_group = QGroupBox("Parameter Panel")
+        self.parameter_group = QGroupBox("Parameters")
         self.parameter_group.setObjectName("parameter_panel")
         self.parameter_form = QFormLayout(self.parameter_group)
-        detail_splitter.addWidget(self.parameter_group)
+        self.parameter_form.setContentsMargins(14, 12, 14, 14)
+        self.parameter_form.setHorizontalSpacing(14)
+        self.parameter_form.setVerticalSpacing(10)
+        self.parameter_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        self.parameter_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        return self.parameter_group
 
-        detail_splitter.addWidget(self._build_target_output_controls())
-        detail_splitter.addWidget(self._build_results_and_logs())
-        detail_splitter.setSizes([340, 150, 260])
-        return detail_splitter
+    def _build_run_dialog(self) -> None:
+        dialog = QDialog(self)
+        dialog.setObjectName("run_dialog")
+        dialog.setWindowTitle("Run Chain")
+        dialog.resize(760, 430)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(18, 16, 18, 18)
+        layout.setSpacing(12)
+        layout.addWidget(self._build_target_output_controls())
+        layout.addWidget(self._build_diagnostics_controls())
+        layout.addStretch(1)
+        footer = QHBoxLayout()
+        footer.addStretch(1)
+        close_button = QPushButton("Close")
+        close_button.setObjectName("close_run_dialog_button")
+        close_button.setProperty("role", "quiet")
+        close_button.clicked.connect(dialog.close)
+        footer.addWidget(close_button)
+        layout.addLayout(footer)
+        self._run_dialog = dialog
+
+    def _show_run_dialog(self) -> None:
+        if self._run_dialog is None:
+            return
+        self._refresh_job_panels()
+        self._run_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self._run_dialog.show()
+        self._run_dialog.raise_()
+        self._run_dialog.activateWindow()
 
     def _build_target_output_controls(self) -> QWidget:
-        group = QGroupBox("Target / Output / Job Controls")
-        layout = QVBoxLayout(group)
+        group = QGroupBox("Run")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(18, 12, 18, 16)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(12)
+        layout.setColumnStretch(1, 1)
 
-        target_row = QHBoxLayout()
+        target_label = QLabel("Targets")
+        target_label.setProperty("role", "fieldLabel")
         self.target_input = QLineEdit()
         self.target_input.setObjectName("target_input")
-        self.target_input.setPlaceholderText("Input files/directories separated by ;")
+        self.target_input.setPlaceholderText("Files or folders, separated by ;")
         self.target_input.editingFinished.connect(self._update_targets_from_text)
-        target_row.addWidget(QLabel("Targets"))
-        target_row.addWidget(self.target_input, 1)
-        browse_targets = QPushButton("Browse…")
+        browse_targets = QPushButton()
+        browse_targets.setObjectName("browse_targets_button")
+        self._configure_icon_button(
+            browse_targets,
+            "SP_DirOpenIcon",
+            "Browse targets",
+            role="icon",
+            fallback=QStyle.StandardPixmap.SP_DialogOpenButton,
+        )
         browse_targets.clicked.connect(self._browse_targets)
-        target_row.addWidget(browse_targets)
-        layout.addLayout(target_row)
+        layout.addWidget(target_label, 0, 0)
+        layout.addWidget(self.target_input, 0, 1)
+        layout.addWidget(browse_targets, 0, 2)
 
-        output_row = QHBoxLayout()
+        output_label = QLabel("Output")
+        output_label.setProperty("role", "fieldLabel")
         self.output_input = QLineEdit()
         self.output_input.setObjectName("output_input")
-        self.output_input.setPlaceholderText("Output file or directory")
+        self.output_input.setPlaceholderText("Output file or folder")
         self.output_input.editingFinished.connect(
             lambda: self.service.set_output_path(self.output_input.text().strip())
         )
-        output_row.addWidget(QLabel("Output"))
-        output_row.addWidget(self.output_input, 1)
-        browse_output = QPushButton("Browse…")
+        browse_output = QPushButton()
+        browse_output.setObjectName("browse_output_button")
+        self._configure_icon_button(
+            browse_output,
+            "SP_DirOpenIcon",
+            "Browse output",
+            role="icon",
+            fallback=QStyle.StandardPixmap.SP_DialogOpenButton,
+        )
         browse_output.clicked.connect(self._browse_output)
-        output_row.addWidget(browse_output)
-        layout.addLayout(output_row)
+        layout.addWidget(output_label, 1, 0)
+        layout.addWidget(self.output_input, 1, 1)
+        layout.addWidget(browse_output, 1, 2)
 
+        mode_label = QLabel("Mode")
+        mode_label.setProperty("role", "fieldLabel")
         mode_row = QHBoxLayout()
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.setSpacing(10)
         self.output_mode = QComboBox()
         self.output_mode.setObjectName("output_mode")
-        self.output_mode.addItems(["final_only", "keep_intermediates", "destructive"])
-        self.output_mode.currentTextChanged.connect(self.service.set_output_mode)
-        mode_row.addWidget(QLabel("Mode"))
+        self.output_mode.addItem("Final only", "final_only")
+        self.output_mode.addItem("Keep intermediates", "keep_intermediates")
+        self.output_mode.addItem("Overwrite originals", "destructive")
+        self.output_mode.currentIndexChanged.connect(
+            lambda _index: self.service.set_output_mode(str(self.output_mode.currentData()))
+        )
         mode_row.addWidget(self.output_mode)
 
         self.worker_count = QSpinBox()
@@ -291,7 +433,9 @@ class MainWindow(QMainWindow):
         self.worker_count.setRange(0, 256)
         self.worker_count.setSpecialValueText("auto")
         self.worker_count.valueChanged.connect(self.service.set_worker_count)
-        mode_row.addWidget(QLabel("Workers"))
+        worker_label = QLabel("Workers")
+        worker_label.setProperty("role", "fieldLabel")
+        mode_row.addWidget(worker_label)
         mode_row.addWidget(self.worker_count)
 
         self.recursive_scan = QCheckBox("Recursive")
@@ -301,53 +445,70 @@ class MainWindow(QMainWindow):
         )
         mode_row.addWidget(self.recursive_scan)
         mode_row.addStretch(1)
-        layout.addLayout(mode_row)
+        layout.addWidget(mode_label, 2, 0)
+        layout.addLayout(mode_row, 2, 1, 1, 2)
 
         job_row = QHBoxLayout()
-        self.run_button = QPushButton("Run chain")
+        job_row.setContentsMargins(0, 0, 0, 0)
+        job_row.setSpacing(10)
+        self.run_button = QPushButton()
         self.run_button.setObjectName("run_job_button")
+        self._configure_icon_button(
+            self.run_button,
+            "SP_MediaPlay",
+            "Run chain",
+            role="iconPrimary",
+            size=QSize(40, 36),
+        )
         self.run_button.clicked.connect(self._run_chain)
         job_row.addWidget(self.run_button)
 
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setObjectName("cancel_job_button")
+        self.cancel_button.setProperty("role", "quiet")
         self.cancel_button.clicked.connect(self._cancel_chain)
         job_row.addWidget(self.cancel_button)
         job_row.addStretch(1)
-        layout.addLayout(job_row)
+        layout.addLayout(job_row, 3, 1, 1, 2)
 
         self.job_status = QLabel("Idle")
         self.job_status.setObjectName("job_status")
         self.job_status.setWordWrap(True)
-        layout.addWidget(self.job_status)
+        self.job_status.setProperty("state", "idle")
+        layout.addWidget(self.job_status, 4, 0, 1, 3)
 
         self.job_progress = QProgressBar()
         self.job_progress.setObjectName("job_progress")
         self.job_progress.setRange(0, 100)
-        layout.addWidget(self.job_progress)
+        self.job_progress.setTextVisible(False)
+        layout.addWidget(self.job_progress, 5, 0, 1, 3)
         return group
 
-    def _build_results_and_logs(self) -> QWidget:
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setObjectName("results_log_splitter")
+    def _build_diagnostics_controls(self) -> QWidget:
+        group = QGroupBox("Diagnostics")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(18, 12, 18, 16)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(10)
+        layout.setColumnStretch(0, 1)
 
-        results_group = QGroupBox("Results")
-        results_layout = QVBoxLayout(results_group)
-        self.results_panel = QPlainTextEdit()
-        self.results_panel.setObjectName("results_panel")
-        self.results_panel.setReadOnly(True)
-        results_layout.addWidget(self.results_panel)
-        splitter.addWidget(results_group)
+        self.recent_activity = QLabel("No recent activity.")
+        self.recent_activity.setObjectName("recent_activity")
+        self.recent_activity.setWordWrap(True)
+        layout.addWidget(self.recent_activity, 0, 0, 1, 3)
 
-        log_group = QGroupBox("Logs")
-        log_layout = QVBoxLayout(log_group)
-        self.log_panel = QPlainTextEdit()
-        self.log_panel.setObjectName("log_panel")
-        self.log_panel.setReadOnly(True)
-        log_layout.addWidget(self.log_panel)
-        splitter.addWidget(log_group)
-        splitter.setSizes([280, 280])
-        return splitter
+        self.save_report_button = QPushButton("Save Report…")
+        self.save_report_button.setObjectName("save_run_report_button")
+        self.save_report_button.setProperty("role", "quiet")
+        self.save_report_button.clicked.connect(self._save_report_file)
+        layout.addWidget(self.save_report_button, 1, 1)
+
+        self.save_log_button = QPushButton("Save Log…")
+        self.save_log_button.setObjectName("save_run_log_button")
+        self.save_log_button.setProperty("role", "quiet")
+        self.save_log_button.clicked.connect(self._save_log_file)
+        layout.addWidget(self.save_log_button, 1, 2)
+        return group
 
     def refresh_workspace(self) -> None:
         self._refreshing = True
@@ -379,11 +540,16 @@ class MainWindow(QMainWindow):
             if group_item is None:
                 group_item = QTreeWidgetItem([group_name])
                 group_item.setFirstColumnSpanned(True)
+                group_font = group_item.font(0)
+                group_font.setBold(True)
+                group_item.setFont(0, group_font)
+                group_item.setForeground(0, QColor("#ece7db"))
                 groups[group_name] = group_item
                 self.capability_browser.addTopLevelItem(group_item)
             item = QTreeWidgetItem([capability.display_name])
             item.setData(0, USER_ROLE, capability.id)
-            item.setToolTip(0, capability.description)
+            item.setToolTip(0, _compact_tooltip(capability.description))
+            item.setForeground(0, QColor("#ece7db"))
             group_item.addChild(item)
         self.capability_browser.expandAll()
 
@@ -406,7 +572,9 @@ class MainWindow(QMainWindow):
             action = QAction(label, self._saved_chain_menu)
             action.setObjectName(f"load_saved_chain_entry_action_{index}")
             action.setData(entry.path)
-            action.setToolTip(entry.description or entry.notes or entry.error or entry.path)
+            action.setToolTip(
+                _compact_tooltip(entry.description or entry.notes or entry.error or entry.path)
+            )
             action.setEnabled(entry.valid)
             action.triggered.connect(
                 lambda _checked=False, path=entry.path: self._load_saved_chain_path(path)
@@ -522,11 +690,29 @@ class MainWindow(QMainWindow):
         self.chain_list.clear()
         chain_view = self.service.chain.to_view_model()
         for node_view in chain_view["nodes"]:
-            marker = "✓" if node_view["validation_state"].get("valid") else "!"
+            validation_state = node_view["validation_state"]
+            is_valid = bool(validation_state.get("valid"))
+            skipped = bool(validation_state.get("skipped"))
+            status_text = "skipped" if skipped else "ready" if is_valid else "attention"
             item = QListWidgetItem(
-                f"{node_view['position'] + 1}. {node_view['display_name']}   {marker}"
+                f"{node_view['position'] + 1:02d}  {node_view['display_name']}  - {status_text}"
             )
             item.setData(USER_ROLE, node_view["id"])
+            item.setSizeHint(QSize(0, 38))
+            if skipped:
+                item.setForeground(QColor("#7d8490"))
+            elif is_valid:
+                item.setForeground(QColor("#89b48f"))
+            else:
+                item.setForeground(QColor("#d8b46b"))
+            error_messages = [
+                str(error.get("message"))
+                for error in validation_state.get("errors", [])
+                if error.get("message")
+            ]
+            item.setToolTip(
+                _compact_tooltip(" | ".join([str(node_view["capability_id"]), *error_messages[:2]]))
+            )
             self.chain_list.addItem(item)
             if node_view["id"] == selected_id:
                 self.chain_list.setCurrentItem(item)
@@ -534,10 +720,13 @@ class MainWindow(QMainWindow):
 
         validation = chain_view["validation_state"]
         if validation["valid"]:
-            self.chain_status.setText("Chain is valid.")
+            self.chain_status.setText("Ready to run.")
+            self.chain_status.setProperty("state", "valid")
         else:
-            messages = [error["message"] for error in validation["errors"][:3]]
-            self.chain_status.setText("Chain needs attention: " + " | ".join(messages))
+            messages = [_friendly_validation_message(error) for error in validation["errors"][:3]]
+            self.chain_status.setText("Needs attention: " + " | ".join(messages))
+            self.chain_status.setProperty("state", "warning")
+        repolish(self.chain_status)
 
     def _refresh_parameter_panel(self) -> None:
         self._clear_form(self.parameter_form)
@@ -546,7 +735,11 @@ class MainWindow(QMainWindow):
         node = self.service.selected_node()
         capability = self.service.selected_capability()
         if node is None or capability is None:
-            self.parameter_form.addRow(QLabel("Select a chain node to edit its parameters."))
+            hint = QLabel("Select a tool in the chain to edit its settings.")
+            hint.setObjectName("empty_parameter_hint")
+            hint.setProperty("role", "emptyState")
+            hint.setWordWrap(True)
+            self.parameter_form.addRow(hint)
             return
 
         title = QLabel(f"{capability.display_name}\n{capability.description}")
@@ -555,7 +748,10 @@ class MainWindow(QMainWindow):
         self.parameter_form.addRow(title)
 
         if not capability.parameters:
-            self.parameter_form.addRow(QLabel("This capability has no configurable parameters."))
+            hint = QLabel("This capability has no configurable parameters.")
+            hint.setProperty("role", "emptyState")
+            hint.setWordWrap(True)
+            self.parameter_form.addRow(hint)
             return
 
         for parameter in capability.parameters:
@@ -570,7 +766,7 @@ class MainWindow(QMainWindow):
         job = self.service.job
         self.target_input.setText("; ".join(job.targets))
         self.output_input.setText(job.output_path)
-        index = self.output_mode.findText(job.output_mode)
+        index = self.output_mode.findData(job.output_mode)
         if index >= 0:
             self.output_mode.setCurrentIndex(index)
         self.worker_count.setValue(job.worker_count)
@@ -584,13 +780,38 @@ class MainWindow(QMainWindow):
         if job.current_node:
             current_bits.append(f"node: {job.current_node}")
         current_text = " | ".join(current_bits)
-        progress_text = f"{job.done}/{job.total}" if job.total else "not started"
-        cancel_text = " (cancellation requested)" if job.cancel_requested else ""
         self.job_status.setText(
-            f"Status: {job.status}{cancel_text}\nProgress: {progress_text}"
-            + (f"\nCurrent: {current_text}" if current_text else "")
+            _friendly_job_status(
+                job.status,
+                done=job.done,
+                total=job.total,
+                current=current_text,
+                cancel_requested=job.cancel_requested,
+            )
         )
-        result_view = {
+        self.job_status.setProperty("state", self._job_status_state())
+        repolish(self.job_status)
+        if hasattr(self, "recent_activity"):
+            self.recent_activity.setText(job.logs[-1] if job.logs else "No recent activity.")
+        if hasattr(self, "save_report_button"):
+            has_report = bool(job.results or job.errors or job.summary or job.status != "idle")
+            self.save_report_button.setEnabled(has_report)
+        if hasattr(self, "save_log_button"):
+            self.save_log_button.setEnabled(bool(job.logs))
+
+    def _job_status_state(self) -> str:
+        job = self.service.job
+        if job.running or job.status in {"running", "cancelling"}:
+            return "running"
+        if job.errors or job.status in {"failed", "validation_error"}:
+            return "failed"
+        if job.status in {"done", "complete", "completed", "success"}:
+            return "done"
+        return "idle"
+
+    def _job_report_view(self) -> dict[str, Any]:
+        job = self.service.job
+        return {
             "status": job.status,
             "progress": {"done": job.done, "total": job.total, "fraction": job.progress},
             "current_node": job.current_node,
@@ -599,8 +820,46 @@ class MainWindow(QMainWindow):
             "results": job.results,
             "errors": job.errors,
         }
-        self.results_panel.setPlainText(json.dumps(result_view, indent=2, sort_keys=True))
-        self.log_panel.setPlainText("\n".join(job.logs))
+
+    def _save_report_file(self) -> None:
+        self._save_text_file(
+            title="Save run report",
+            suggested_name="audiocli-run-report.json",
+            file_filter="JSON files (*.json);;All files (*)",
+            text=json.dumps(self._job_report_view(), indent=2, sort_keys=True) + "\n",
+        )
+
+    def _save_log_file(self) -> None:
+        self._save_text_file(
+            title="Save run log",
+            suggested_name="audiocli-run.log",
+            file_filter="Log files (*.log *.txt);;All files (*)",
+            text="\n".join(self.service.job.logs) + ("\n" if self.service.job.logs else ""),
+        )
+
+    def _save_text_file(
+        self,
+        *,
+        title: str,
+        suggested_name: str,
+        file_filter: str,
+        text: str,
+    ) -> None:
+        if self.test_safe:
+            return
+        path, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            title,
+            suggested_name,
+            file_filter,
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(text)
+        except OSError as exc:
+            QMessageBox.warning(self, title, str(exc))
 
     def _create_parameter_widget(
         self,
@@ -688,12 +947,20 @@ class MainWindow(QMainWindow):
         container.setObjectName(f"param_widget_{name}")
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
         line = QLineEdit()
         line.setObjectName(f"param_widget_{name}_line")
         line.setText("" if value is None else str(value))
         line.editingFinished.connect(lambda w=line: updater(w.text()))
         layout.addWidget(line, 1)
-        browse = QPushButton("Browse…")
+        browse = QPushButton()
+        self._configure_icon_button(
+            browse,
+            "SP_DirOpenIcon",
+            f"Browse {name}",
+            role="icon",
+            fallback=QStyle.StandardPixmap.SP_DialogOpenButton,
+        )
         browse.clicked.connect(lambda: self._browse_parameter_path(line, updater))
         layout.addWidget(browse)
         return container
@@ -916,6 +1183,50 @@ def _decode_json_text(text: str) -> Any:
         return json.loads(text)
     except json.JSONDecodeError:
         return text
+
+
+def _friendly_validation_message(error: dict[str, Any]) -> str:
+    if error.get("code") == "no_enabled_nodes":
+        return "Add a tool to the chain before running."
+    return str(error.get("message") or "Review the chain settings.")
+
+
+def _friendly_job_status(
+    status: str,
+    *,
+    done: int,
+    total: int,
+    current: str,
+    cancel_requested: bool,
+) -> str:
+    if cancel_requested:
+        label = "Stopping after the current step."
+    else:
+        label = {
+            "idle": "Idle",
+            "running": "Running",
+            "cancelling": "Stopping",
+            "validation_error": "Needs attention",
+            "failed": "Failed",
+            "done": "Finished",
+            "complete": "Finished",
+            "completed": "Finished",
+            "success": "Finished",
+        }.get(status, status.replace("_", " ").title())
+
+    progress = f"{done} of {total} files processed" if total else "No files processed yet"
+
+    lines = [label, progress]
+    if current:
+        lines.append(f"Current: {current}")
+    return "\n".join(lines)
+
+
+def _compact_tooltip(text: object, *, limit: int = 120) -> str:
+    value = " ".join(str(text or "").split())
+    if len(value) <= limit:
+        return value
+    return value[: limit - 1].rstrip() + "…"
 
 
 def ensure_qapplication(argv: list[str] | None = None) -> QApplication:
