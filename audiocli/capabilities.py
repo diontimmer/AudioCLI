@@ -1102,7 +1102,12 @@ def _file_filter_action_parameters() -> list[CapabilityParameter]:
             name="destination_dir",
             type="Path",
             display_name="Destination Folder",
-            description="Required for copy and move actions.",
+            description=(
+                "Required for copy and move actions. Supports placeholders:"
+                " {source} (source directory), {stem}, {name}, {suffix},"
+                " {relative} (path relative to scan root, with filename),"
+                " {relative_dir} (directory portion of {relative})."
+            ),
             required=False,
             default="",
             control_hint="path",
@@ -1112,7 +1117,8 @@ def _file_filter_action_parameters() -> list[CapabilityParameter]:
             type="str",
             display_name="Rename Template",
             description=(
-                "Template for rename action. Supports {stem}, {suffix}, {name}, and {parent}."
+                "Template for rename action. Supports {stem}, {suffix}, {name},"
+                " {parent}, {source}, {relative}, and {relative_dir}."
             ),
             required=False,
             default="{stem}{suffix}",

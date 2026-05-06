@@ -105,6 +105,7 @@ class OneNodeFilterChainPreparation:
     targets: list[Path] = field(default_factory=list)
     output_preview: list[ChainOutputPreview] = field(default_factory=list)
     validation: ChainValidationResult | None = None
+    scan_roots: tuple[Path, ...] = ()
 
     @property
     def target_count(self) -> int:
@@ -119,6 +120,7 @@ class OneNodeFilterChainPreparation:
             "targets": [str(path) for path in self.targets],
             "output_preview": [preview.to_view_model() for preview in self.output_preview],
             "validation_state": self.validation.to_view_model() if self.validation else None,
+            "scan_roots": [str(path) for path in self.scan_roots],
         }
 
 
@@ -658,6 +660,7 @@ class FileChainExecutionPreparation:
     output_policy: ChainOutputPolicy = field(default_factory=ChainOutputPolicy)
     output_preview: list[ChainOutputPreview] = field(default_factory=list)
     validation: ChainValidationResult | None = None
+    scan_roots: tuple[Path, ...] = ()
 
     @property
     def target_count(self) -> int:
@@ -677,6 +680,7 @@ class FileChainExecutionPreparation:
             "output_policy": self.output_policy.to_view_model(),
             "output_preview": [preview.to_view_model() for preview in self.output_preview],
             "validation_state": self.validation.to_view_model() if self.validation else None,
+            "scan_roots": [str(path) for path in self.scan_roots],
         }
 
 

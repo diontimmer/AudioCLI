@@ -127,8 +127,9 @@ def prepare_one_node_filter_chain(
     """
 
     validation, step = _validated_single_step(chain)
+    target_list = [Path(t) for t in targets]
     scanned = scan_targets(
-        targets,
+        target_list,
         recursive=recursive,
         extensions=extensions,
         include_hidden=include_hidden,
@@ -137,8 +138,9 @@ def prepare_one_node_filter_chain(
     if not scanned:
         raise AudioCLIError("no audio files matched the targets")
 
+    scan_roots = _scan_roots_from_targets(target_list)
     output_path = Path(output) if output is not None else None
-    previews = preview_output_paths(scanned, step, output=output_path)
+    previews = preview_output_paths(scanned, step, output=output_path, scan_roots=scan_roots)
     return OneNodeFilterChainPreparation(
         chain_id=chain.id,
         chain_name=chain.name,
@@ -146,6 +148,7 @@ def prepare_one_node_filter_chain(
         targets=scanned,
         output_preview=previews,
         validation=validation,
+        scan_roots=scan_roots,
     )
 
 
@@ -232,8 +235,9 @@ def prepare_file_chain_execution(
         raise AudioCLIError("destructive chain execution requires explicit confirmation")
 
     validation, plan = _validated_execution_plan(chain)
+    target_list = [Path(t) for t in targets]
     scanned = scan_targets(
-        targets,
+        target_list,
         recursive=recursive,
         extensions=extensions,
         include_hidden=include_hidden,
@@ -245,17 +249,20 @@ def prepare_file_chain_execution(
     if policy.mode == "destructive":
         _verify_destructive_affected_paths(scanned, destructive_confirmation)
 
+    scan_roots = _scan_roots_from_targets(target_list)
     previews = preview_chain_output_paths(
         scanned,
         plan,
         output_policy=policy,
         destructive_confirmation=destructive_confirmation,
+        scan_roots=scan_roots,
     )
     return FileChainExecutionPreparation(
         chain_id=chain.id,
         chain_name=chain.name,
         plan=plan,
         targets=scanned,
+        scan_roots=scan_roots,
         output_policy=policy,
         output_preview=previews,
         validation=validation,
@@ -406,6 +413,7 @@ def execute_file_chain(
                 on_event=on_event,
                 cancel_token=cancel_token,
                 skip_job_script_steps=True,
+                scan_roots=preparation.scan_roots,
             )
         report.results.append(result)
         _emit_file_completion_events(
@@ -520,6 +528,7 @@ def preview_chain_output_paths(
     output: str | Path | None = None,
     mode: str | None = None,
     destructive_confirmation: DestructiveConfirmation | Mapping[str, Any] | None = None,
+    scan_roots: Iterable[Path] = (),
 ) -> list[ChainOutputPreview]:
     """Preview final destinations for a file-based chain without running DSP."""
 
@@ -548,10 +557,13 @@ def preview_chain_output_paths(
         return [
             ChainOutputPreview(source_path=target, output_path=target) for target in target_paths
         ]
+    roots = tuple(scan_roots)
     return [
         ChainOutputPreview(
             source_path=target,
-            output_path=_preview_output_path(target, policy.output, final_step),
+            output_path=_preview_output_path(
+                target, policy.output, final_step, scan_roots=roots
+            ),
         )
         for target in target_paths
     ]
@@ -574,17 +586,27 @@ def preview_output_paths(
     step: ChainExecutionStep,
     *,
     output: str | Path | None = None,
+    scan_roots: Iterable[Path] = (),
 ) -> list[ChainOutputPreview]:
     """Preview destination paths for one execution step without running audio DSP."""
 
-    output_path = Path(output) if output is not None else None
-    return [
-        ChainOutputPreview(
-            source_path=Path(target),
-            output_path=_preview_output_path(Path(target), output_path, step),
+    raw_output = str(output) if output is not None else None
+    roots = tuple(scan_roots)
+    previews: list[ChainOutputPreview] = []
+    for target in targets:
+        src = Path(target)
+        if raw_output is not None:
+            expanded = expand_path_placeholders(raw_output, src, scan_roots=roots)
+            out = Path(expanded)
+        else:
+            out = None
+        previews.append(
+            ChainOutputPreview(
+                source_path=src,
+                output_path=_preview_output_path(src, out, step, scan_roots=roots),
+            )
         )
-        for target in targets
-    ]
+    return previews
 
 
 def import_acli_script(
@@ -751,7 +773,16 @@ def _validated_single_step(
     return validation, step
 
 
-def _preview_output_path(src: Path, output: Path | None, step: ChainExecutionStep) -> Path:
+def _preview_output_path(
+    src: Path,
+    output: Path | None,
+    step: ChainExecutionStep,
+    *,
+    scan_roots: Iterable[Path] = (),
+) -> Path:
+    if output is not None and "{" in str(output):
+        expanded = expand_path_placeholders(str(output), src, scan_roots=scan_roots)
+        output = Path(expanded)
     dst = _resolve_output_preview(src, output, step.operation_name)
     predicted_format = predict_output_format(src, step.operation_name, step.params)
     return rewrite_output_extension(dst, predicted_format)
@@ -1063,6 +1094,7 @@ def _preview_remove_silent_at_chain_node(
                 remove_step_index,
                 temp_dir,
                 cancel_token=cancel_token,
+                scan_roots=preparation.scan_roots,
             )
             for physical_path, preview_path in current_paths:
                 if _cancel_requested(cancel_token):
@@ -1141,6 +1173,7 @@ def _preview_name_regex_at_chain_node(
                 filter_step_index,
                 temp_dir,
                 cancel_token=cancel_token,
+                scan_roots=preparation.scan_roots,
             )
             for _physical_path, preview_path in current_paths:
                 if _cancel_requested(cancel_token):
@@ -1189,6 +1222,7 @@ def _simulate_file_set_before_remove_silent(
     temp_dir: Path,
     *,
     cancel_token: Event | None = None,
+    scan_roots: Iterable[Path] = (),
 ) -> list[tuple[Path, Path]]:
     """Run enabled steps before remove-silent against managed dry-run files.
 
@@ -1230,6 +1264,7 @@ def _simulate_file_set_before_remove_silent(
                 policy,
                 dry_policy,
                 temp_dir,
+                scan_roots=scan_roots,
             )
             collection_expanded = True
             continue
@@ -1253,6 +1288,7 @@ def _simulate_file_set_before_remove_silent(
                 dry_policy,
                 temp_dir,
                 collection_expanded=expanded_inputs,
+                scan_roots=scan_roots,
             )
             preview_dst = (
                 _mapped_step_destination(
@@ -1264,6 +1300,7 @@ def _simulate_file_set_before_remove_silent(
                     policy,
                     None,
                     collection_expanded=expanded_inputs,
+                    scan_roots=scan_roots,
                 )
                 if is_final
                 else physical_dst
@@ -1293,6 +1330,8 @@ def _simulate_chunk_step_before_remove_silent(
     policy: ChainOutputPolicy,
     dry_policy: ChainOutputPolicy,
     temp_dir: Path,
+    *,
+    scan_roots: Iterable[Path] = (),
 ) -> list[tuple[Path, Path]]:
     physical_dest_dir = _chunk_destination_dir(
         source,
@@ -1301,9 +1340,12 @@ def _simulate_chunk_step_before_remove_silent(
         False,
         dry_policy,
         temp_dir,
+        scan_roots=scan_roots,
     )
     preview_dest_dir = (
-        _chunk_destination_dir(source, step, step_index, True, policy, None)
+        _chunk_destination_dir(
+            source, step, step_index, True, policy, None, scan_roots=scan_roots
+        )
         if is_final
         else physical_dest_dir
     )
@@ -1397,6 +1439,8 @@ def _apply_file_filter_action(
     path: Path,
     step: ChainExecutionStep,
     matched: bool,
+    *,
+    scan_roots: Iterable[Path] = (),
 ) -> tuple[Path | None, str, Path | None]:
     if not matched:
         return path, "kept", None
@@ -1408,41 +1452,168 @@ def _apply_file_filter_action(
         path.unlink()
         return None, "removed", None
     if action == "copy":
-        destination = _copy_or_move_destination(path, step)
+        destination = _copy_or_move_destination(path, step, scan_roots=scan_roots)
         shutil.copy2(path, destination)
         return path, "copied", destination
     if action == "move":
-        destination = _copy_or_move_destination(path, step)
+        destination = _copy_or_move_destination(path, step, scan_roots=scan_roots)
         shutil.move(str(path), str(destination))
         return destination, "moved", destination
     if action == "rename":
-        destination = _rename_destination(path, step)
+        destination = _rename_destination(path, step, scan_roots=scan_roots)
         path.rename(destination)
         return destination, "renamed", destination
     raise AudioCLIError(f"unsupported file filter action: {action!r}")
 
 
-def _copy_or_move_destination(path: Path, step: ChainExecutionStep) -> Path:
+def _scan_roots_from_targets(targets: Iterable[str | Path]) -> tuple[Path, ...]:
+    """Extract directory targets as scan roots for relative-path expansion.
+
+    File targets contribute their parent so ``{relative}`` still works when a
+    user passes individual files. The result is order-preserving and de-duped.
+    """
+    seen: set[Path] = set()
+    roots: list[Path] = []
+    for raw in targets:
+        path = Path(raw)
+        if path.is_dir():
+            root = path
+        elif path.is_file():
+            root = path.parent
+        else:
+            continue
+        try:
+            resolved = root.resolve()
+        except OSError:
+            resolved = root
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        roots.append(resolved)
+    return tuple(roots)
+
+
+def _resolve_scan_root(source: Path, scan_roots: Iterable[Path]) -> Path | None:
+    """Return the deepest scan root that contains ``source`` (or ``None``)."""
+    try:
+        src_resolved = source.resolve()
+    except OSError:
+        src_resolved = source
+    best: Path | None = None
+    best_depth = -1
+    for root in scan_roots:
+        try:
+            root_resolved = root.resolve()
+        except OSError:
+            root_resolved = root
+        try:
+            src_resolved.relative_to(root_resolved)
+        except ValueError:
+            continue
+        depth = len(root_resolved.parts)
+        if depth > best_depth:
+            best = root_resolved
+            best_depth = depth
+    return best
+
+
+def expand_path_placeholders(
+    raw_path: str,
+    source: Path,
+    *,
+    scan_roots: Iterable[Path] = (),
+) -> str:
+    """Expand placeholder variables in a path string.
+
+    Supported placeholders:
+        {source}        — parent directory of the source file
+        {parent}        — same as {source}
+        {stem}          — filename without extension
+        {name}          — full filename including extension
+        {suffix}        — file extension (e.g. ".wav")
+        {relative}      — source path relative to its scan root (with filename)
+        {relative_dir}  — directory portion of the relative path
+
+    When no scan root contains ``source`` (or none provided), ``{relative}``
+    falls back to the bare filename and ``{relative_dir}`` to an empty string.
+    """
+    relative_name = source.name
+    relative_dir = ""
+    roots = tuple(scan_roots)
+    if roots:
+        root = _resolve_scan_root(source, roots)
+        if root is not None:
+            try:
+                rel = source.resolve().relative_to(root)
+                relative_name = str(rel)
+                parent = rel.parent
+                if str(parent) != ".":
+                    relative_dir = str(parent)
+            except (ValueError, OSError):
+                pass
+    return raw_path.format(
+        source=str(source.parent),
+        parent=str(source.parent),
+        stem=source.stem,
+        name=source.name,
+        suffix=source.suffix,
+        relative=relative_name,
+        relative_dir=relative_dir,
+    )
+
+
+def _copy_or_move_destination(
+    path: Path,
+    step: ChainExecutionStep,
+    *,
+    scan_roots: Iterable[Path] = (),
+) -> Path:
     raw_dir = str(step.params.get("destination_dir") or "").strip()
     if not raw_dir:
         raise AudioCLIError(f"destination_dir is required for action {_file_filter_action(step)!r}")
-    destination_dir = Path(raw_dir).expanduser()
+    try:
+        expanded = expand_path_placeholders(raw_dir, path, scan_roots=scan_roots)
+    except (KeyError, ValueError, IndexError) as exc:
+        raise AudioCLIError(f"invalid placeholder in destination_dir: {exc}") from exc
+    destination_dir = Path(expanded).expanduser()
     destination_dir.mkdir(parents=True, exist_ok=True)
     destination = destination_dir / path.name
     _reject_existing_action_destination(destination)
     return destination
 
 
-def _rename_destination(path: Path, step: ChainExecutionStep) -> Path:
+def _rename_destination(
+    path: Path,
+    step: ChainExecutionStep,
+    *,
+    scan_roots: Iterable[Path] = (),
+) -> Path:
     template = str(step.params.get("rename_template") or "").strip()
     if not template:
         raise AudioCLIError("rename_template is required for rename action")
+    relative_name = path.name
+    relative_dir = ""
+    roots = tuple(scan_roots)
+    if roots:
+        root = _resolve_scan_root(path, roots)
+        if root is not None:
+            try:
+                rel = path.resolve().relative_to(root)
+                relative_name = str(rel)
+                parent = rel.parent
+                if str(parent) != ".":
+                    relative_dir = str(parent)
+            except (ValueError, OSError):
+                pass
     try:
         name = template.format(
             stem=path.stem,
             suffix=path.suffix,
             name=path.name,
             parent=str(path.parent),
+            source=str(path.parent),
+            relative=relative_name,
+            relative_dir=relative_dir,
         )
     except Exception as exc:
         raise AudioCLIError(f"invalid rename template: {exc}") from exc
@@ -1996,6 +2167,7 @@ def _execute_chain_for_file(
     on_event: EventCallback | None = None,
     cancel_token: Event | None = None,
     skip_job_script_steps: bool = False,
+    scan_roots: tuple[Path, ...] = (),
 ) -> ChainFileResult:
     artifacts: list[ChainStepArtifact] = []
     analysis_results: list[ChainAnalysisResult] = []
@@ -2125,7 +2297,8 @@ def _execute_chain_for_file(
                 elif _is_chunk_step(step):
                     output_paths = []
                     dest_dir = _chunk_destination_dir(
-                        source, step, step_index, is_final, policy, temp_dir
+                        source, step, step_index, is_final, policy, temp_dir,
+                        scan_roots=scan_roots,
                     )
                     for path in input_paths:
                         pieces = chunk_buffer(
@@ -2192,7 +2365,7 @@ def _execute_chain_for_file(
                             )
                         matched = is_silent(load(path), threshold_db=threshold_db, metric=metric)
                         next_path, status, action_path = _apply_file_filter_action(
-                            path, step, matched
+                            path, step, matched, scan_roots=scan_roots
                         )
                         action_results[status].append(action_path or path)
                         if matched:
@@ -2241,7 +2414,7 @@ def _execute_chain_for_file(
                             )
                         matched = bool(matcher.search(path.name))
                         next_path, status, action_path = _apply_file_filter_action(
-                            path, step, matched
+                            path, step, matched, scan_roots=scan_roots
                         )
                         action_results[status].append(action_path or path)
                         if matched:
@@ -2272,6 +2445,7 @@ def _execute_chain_for_file(
                             policy,
                             temp_dir,
                             collection_expanded=collection_expanded or len(input_paths) > 1,
+                            scan_roots=scan_roots,
                         )
                         out_buf = op.func(load(path), **op_params)
                         dst = rewrite_output_extension(dst, out_buf.format)
@@ -2616,9 +2790,11 @@ def _chunk_destination_dir(
     is_final: bool,
     policy: ChainOutputPolicy,
     temp_dir: Path | None,
+    *,
+    scan_roots: Iterable[Path] = (),
 ) -> Path:
     if is_final:
-        return _final_output_dir(source, policy)
+        return _final_output_dir(source, policy, scan_roots=scan_roots)
     return _intermediate_step_dir(source, step, step_index, policy, temp_dir)
 
 
@@ -2632,26 +2808,37 @@ def _mapped_step_destination(
     temp_dir: Path | None,
     *,
     collection_expanded: bool,
+    scan_roots: Iterable[Path] = (),
 ) -> Path:
     if is_final and collection_expanded:
-        return _final_output_dir(source, policy) / current_path.name
+        return _final_output_dir(source, policy, scan_roots=scan_roots) / current_path.name
     if not is_final and collection_expanded:
         return (
             _intermediate_step_dir(source, step, step_index, policy, temp_dir) / current_path.name
         )
-    return _step_destination(source, current_path, step, step_index, is_final, policy, temp_dir)
+    return _step_destination(
+        source, current_path, step, step_index, is_final, policy, temp_dir, scan_roots=scan_roots
+    )
 
 
-def _final_output_dir(source: Path, policy: ChainOutputPolicy) -> Path:
+def _final_output_dir(
+    source: Path,
+    policy: ChainOutputPolicy,
+    *,
+    scan_roots: Iterable[Path] = (),
+) -> Path:
     if policy.mode == "destructive":
         raise AudioCLIError("destructive chain execution does not support expanded file sets")
     if policy.output is None:
         return source.parent
-    if policy.output.suffix and not policy.output.is_dir():
+    output = policy.output
+    if "{" in str(output):
+        output = Path(expand_path_placeholders(str(output), source, scan_roots=scan_roots))
+    if output.suffix and not output.is_dir():
         raise AudioCLIError(
             "exact output file cannot be used with expanded file sets; choose an output directory"
         )
-    return policy.output
+    return output
 
 
 def _intermediate_step_dir(
@@ -2685,11 +2872,13 @@ def _step_destination(
     is_final: bool,
     policy: ChainOutputPolicy,
     temp_dir: Path | None,
+    *,
+    scan_roots: Iterable[Path] = (),
 ) -> Path:
     if is_final:
         if policy.mode == "destructive":
             return source
-        return _preview_output_path(source, policy.output, step)
+        return _preview_output_path(source, policy.output, step, scan_roots=scan_roots)
 
     if policy.mode == "keep_intermediates":
         base_dir = _keep_intermediates_root(source, policy.output, step)
