@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any
 
 from audiocli.capabilities import CapabilityNode, list_capabilities
-from audiocli.capabilities import get_capability as resolve_capability
 from audiocli.chains import CapabilityChain, ChainNode
 from audiocli.errors import AudioCLIError
+from audiocli.gui.chain_session import ChainSession
 from audiocli.gui.import_export import (
     ExportResult,
     ImportResult,
@@ -475,14 +475,29 @@ class InMemoryWorkspaceService:
         self._catalog: dict[str, CapabilityNode] = {node.id: node for node in capability_list}
         self.settings_path = Path(settings_path) if settings_path is not None else None
         self.settings = settings if settings is not None else load_gui_settings(self.settings_path)
-        self.chain = CapabilityChain(name=chain_name, capability_catalog=self._catalog)
-        self.selected_node_id: str | None = None
+        self.chain_session = ChainSession(self._catalog, chain_name=chain_name)
         self.job = WorkspaceJobState(
             output_mode=self.settings.last_output_mode,
             worker_count=self.settings.worker_count,
             recursive=self.settings.recursive,
         )
         self.execution = WorkspaceExecutionService(self.job)
+
+    @property
+    def chain(self) -> CapabilityChain:
+        return self.chain_session.chain
+
+    @chain.setter
+    def chain(self, chain: CapabilityChain) -> None:
+        self.replace_chain(chain)
+
+    @property
+    def selected_node_id(self) -> str | None:
+        return self.chain_session.selected_node_id
+
+    @selected_node_id.setter
+    def selected_node_id(self, node_id: str | None) -> None:
+        self.chain_session.selected_node_id = node_id
 
     @property
     def capability_catalog(self) -> Mapping[str, CapabilityNode]:
@@ -494,73 +509,45 @@ class InMemoryWorkspaceService:
         return list(self._capabilities)
 
     def get_capability(self, capability_id: str) -> CapabilityNode:
-        capability = self._catalog.get(capability_id)
-        if capability is not None:
-            return capability
-        try:
-            capability = resolve_capability(capability_id)
-        except KeyError as exc:
-            raise ValueError(f"Unknown capability: {capability_id}") from exc
-        if capability.id not in self._catalog:
-            raise ValueError(f"Unknown capability: {capability_id}")
-        return self._catalog[capability.id]
+        return self.chain_session.get_capability(capability_id)
+
+    def replace_chain(
+        self, chain: CapabilityChain, *, select_first: bool = True
+    ) -> CapabilityChain:
+        return self.chain_session.replace_chain(chain, select_first=select_first)
 
     def selected_node(self) -> ChainNode | None:
-        if self.selected_node_id is None:
-            return None
-        try:
-            return self.chain.get_node(self.selected_node_id)
-        except (IndexError, ValueError, KeyError):
-            self.selected_node_id = None
-            return None
+        return self.chain_session.selected_node()
 
     def selected_capability(self) -> CapabilityNode | None:
-        node = self.selected_node()
-        if node is None:
-            return None
-        return self._catalog.get(node.capability_id)
+        return self.chain_session.selected_capability()
 
     def select_node(self, node_id: str | None) -> ChainNode | None:
-        if node_id is None:
-            self.selected_node_id = None
-            return None
-        node = self.chain.get_node(node_id)
-        self.selected_node_id = node.id
-        return node
+        return self.chain_session.select_node(node_id)
 
     def add_node(self, capability_id: str, *, index: int | None = None) -> ChainNode:
         capability = self.get_capability(capability_id)
-        node = self.chain.add_node(capability.id, capability.defaults, index=index)
-        self.selected_node_id = node.id
+        node = self.chain_session.add_node(capability.id, index=index)
         self.job.logs.append(f"Added {capability.display_name} to the chain.")
         return node
 
     def move_node(self, node_id: str, index: int) -> ChainNode:
-        node = self.chain.move_node(node_id, index)
-        self.selected_node_id = node.id
+        node = self.chain_session.move_node(node_id, index)
         self.job.logs.append(f"Moved node {node.id} to position {index + 1}.")
         return node
 
     def move_selected(self, delta: int) -> ChainNode | None:
-        node = self.selected_node()
-        if node is None:
-            return None
-        current_index = self.chain.nodes.index(node)
-        new_index = max(0, min(len(self.chain.nodes) - 1, current_index + delta))
-        if new_index == current_index:
-            return node
-        return self.move_node(node.id, new_index)
+        selected = self.selected_node()
+        current_index = self.chain.nodes.index(selected) if selected is not None else None
+        node = self.chain_session.move_selected(delta)
+        if node is not None and current_index is not None:
+            new_index = self.chain.nodes.index(node)
+            if new_index != current_index:
+                self.job.logs.append(f"Moved node {node.id} to position {new_index + 1}.")
+        return node
 
     def remove_node(self, node_id: str) -> ChainNode:
-        current_index = self.chain.nodes.index(self.chain.get_node(node_id))
-        node = self.chain.remove_node(node_id)
-        if self.selected_node_id == node.id:
-            if self.chain.nodes:
-                self.selected_node_id = self.chain.nodes[
-                    min(current_index, len(self.chain.nodes) - 1)
-                ].id
-            else:
-                self.selected_node_id = None
+        node = self.chain_session.remove_node(node_id)
         self.job.logs.append(f"Removed node {node.id}.")
         return node
 
@@ -571,17 +558,10 @@ class InMemoryWorkspaceService:
         return self.remove_node(node.id)
 
     def update_node_params(self, node_id: str, params: Mapping[str, Any]) -> ChainNode:
-        node = self.chain.update_node_params(node_id, params)
-        self.selected_node_id = node.id
-        return node
+        return self.chain_session.update_node_params(node_id, params)
 
     def update_selected_param(self, name: str, value: Any) -> ChainNode | None:
-        node = self.selected_node()
-        if node is None:
-            return None
-        params = dict(node.params)
-        params[name] = value
-        return self.update_node_params(node.id, params)
+        return self.chain_session.update_selected_param(name, value)
 
     def set_targets(self, targets: Sequence[str | Path]) -> None:
         self.job.targets = [str(path) for path in targets]
@@ -623,9 +603,7 @@ class InMemoryWorkspaceService:
 
     def load_saved_chain(self, path: str | Path) -> CapabilityChain:
         chain = self.chain_library_service().load_saved_chain(path)
-        chain.capability_catalog = self._catalog
-        self.chain = chain
-        self.selected_node_id = self.chain.nodes[0].id if self.chain.nodes else None
+        self.replace_chain(chain)
         self.job.logs.append(f"Loaded saved chain '{chain.name}' from {path}.")
         return chain
 
@@ -651,9 +629,7 @@ class InMemoryWorkspaceService:
 
     def import_native_chain(self, path: str | Path) -> ImportResult:
         result = import_native_chain(path, capability_catalog=self._catalog)
-        self.chain = result.chain
-        self.chain.capability_catalog = self._catalog
-        self.selected_node_id = self.chain.nodes[0].id if self.chain.nodes else None
+        self.replace_chain(result.chain)
         self.job.logs.append(result.explanation)
         return result
 
@@ -664,9 +640,7 @@ class InMemoryWorkspaceService:
 
     def import_acli_script_file(self, path: str | Path, *, strict: bool = False) -> ImportResult:
         result = import_acli_chain(path, strict=strict)
-        result.chain.capability_catalog = self._catalog
-        self.chain = result.chain
-        self.selected_node_id = self.chain.nodes[0].id if self.chain.nodes else None
+        self.replace_chain(result.chain)
         self.job.logs.append(result.explanation)
         return result
 
@@ -793,13 +767,7 @@ class InMemoryWorkspaceService:
         }
 
     def _selected_node_view_model(self) -> dict[str, Any] | None:
-        node = self.selected_node()
-        if node is None:
-            return None
-        for node_view in self.chain.to_view_model()["nodes"]:
-            if node_view["id"] == node.id:
-                return node_view
-        return None
+        return self.chain_session.selected_node_view_model()
 
 
 def _snapshot_chain(

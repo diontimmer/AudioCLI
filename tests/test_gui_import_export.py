@@ -19,6 +19,7 @@ from audiocli.gui.import_export import (
     import_native_chain,
 )
 from audiocli.gui.service import InMemoryWorkspaceService
+from audiocli.gui.settings import GuiSettings
 from audiocli.io import save
 
 
@@ -226,7 +227,7 @@ def test_acli_export_atomic_write_failure_preserves_existing_destination(tmp_pat
 
 
 def test_workspace_service_exposes_import_export_methods(tmp_path):
-    service = InMemoryWorkspaceService()
+    service = InMemoryWorkspaceService(settings=GuiSettings())
     service.chain.add_node("builtin.filter.gain", {"db": 1.0}, node_id="gain-service")
 
     native_result = service.export_current_chain_native(tmp_path / "service.aclichain")

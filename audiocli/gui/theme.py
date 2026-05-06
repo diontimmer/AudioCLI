@@ -9,6 +9,14 @@ from PySide6.QtWidgets import QApplication, QStyleFactory, QWidget
 def apply_workspace_theme(app: QApplication) -> None:
     """Install AudioCLI's polished desktop theme on the Qt application."""
 
+    base_font = workspace_code_font(app)
+    point_size = base_font.pointSize()
+    if point_size > 0:
+        base_font.setPointSize(min(max(point_size, 11), 13))
+    app.setFont(base_font)
+    app.setFont(base_font, "QWidget")
+    app.setProperty("_audiocli_workspace_theme_font_family", base_font.family())
+
     if app.property("_audiocli_workspace_theme_applied"):
         return
 
@@ -16,13 +24,8 @@ def apply_workspace_theme(app: QApplication) -> None:
     if "Fusion" in available_styles:
         app.setStyle("Fusion")
 
-    base_font = _workspace_interface_font(app)
-    point_size = base_font.pointSize()
-    if point_size > 0:
-        base_font.setPointSize(min(max(point_size, 11), 13))
-    app.setFont(base_font)
     app.setPalette(_workspace_palette())
-    app.setStyleSheet(WORKSPACE_STYLESHEET)
+    app.setStyleSheet(_workspace_stylesheet(base_font.family()))
     app.setProperty("_audiocli_workspace_theme_applied", True)
 
 
@@ -32,6 +35,43 @@ def repolish(widget: QWidget) -> None:
     widget.style().unpolish(widget)
     widget.style().polish(widget)
     widget.update()
+
+
+def workspace_code_font(app: QApplication | None = None) -> QFont:
+    """Return a readable monospace font for paths, JSON, and parameter values."""
+
+    available_families = set(QFontDatabase.families())
+    for family in (
+        "SF Mono",
+        "Menlo",
+        "Monaco",
+        "Cascadia Code",
+        "JetBrains Mono",
+        "Fira Code",
+        "Source Code Pro",
+        "Consolas",
+    ):
+        if family in available_families:
+            font = QFont(family)
+            break
+    else:
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        if not font.family() and app is not None:
+            font = app.font()
+    point_size = font.pointSize()
+    if point_size > 0:
+        font.setPointSize(min(max(point_size, 10), 12))
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    font.setFixedPitch(True)
+    return font
+
+
+def _workspace_stylesheet(font_family: str) -> str:
+    family = font_family.replace('"', "")
+    return WORKSPACE_STYLESHEET.replace(
+        "__AUDIOCLI_CODE_FONT__",
+        f'"{family}", "Menlo", "Monaco", "Cascadia Code", "JetBrains Mono", "Consolas", monospace',
+    )
 
 
 def _workspace_palette() -> QPalette:
@@ -57,24 +97,13 @@ def _workspace_palette() -> QPalette:
     return palette
 
 
-def _workspace_interface_font(app: QApplication) -> QFont:
-    available_families = set(QFontDatabase.families())
-    for family in (".AppleSystemUIFont", "Segoe UI", "Helvetica Neue", "Arial"):
-        if family in available_families:
-            return QFont(family)
-
-    font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
-    if font.family():
-        return font
-    return app.font()
-
-
 WORKSPACE_STYLESHEET = """
 QMainWindow {
     background: #252629;
 }
 
 QWidget {
+    font-family: __AUDIOCLI_CODE_FONT__;
     color: #eee9dd;
     selection-background-color: #3b4655;
     selection-color: #eee9dd;
@@ -296,7 +325,8 @@ QLabel#selected_capability_summary {
 }
 
 QLabel#chain_status,
-QLabel#job_status {
+QLabel#job_status,
+QLabel#vst_host_status {
     border-radius: 7px;
     font-weight: 600;
     padding: 9px 10px;
@@ -310,25 +340,29 @@ QLabel#job_status[state="done"] {
 }
 
 QLabel#chain_status[state="warning"],
-QLabel#job_status[state="warning"] {
+QLabel#job_status[state="warning"],
+QLabel#vst_host_status[state="warning"] {
     background: #332f22;
     border: 1px solid #b9975a;
     color: #ead497;
 }
 
-QLabel#job_status[state="failed"] {
+QLabel#job_status[state="failed"],
+QLabel#vst_host_status[state="failed"] {
     background: #34272a;
     border: 1px solid #a9646a;
     color: #e6b4b8;
 }
 
-QLabel#job_status[state="running"] {
+QLabel#job_status[state="running"],
+QLabel#vst_host_status[state="running"] {
     background: #23303b;
     border: 1px solid #8ea8c3;
     color: #b9cde1;
 }
 
-QLabel#job_status[state="idle"] {
+QLabel#job_status[state="idle"],
+QLabel#vst_host_status[state="idle"] {
     background: #252629;
     border: 1px solid #3c414a;
     color: #e5dfd2;
@@ -440,6 +474,15 @@ QListWidget::item {
     border-radius: 5px;
     min-height: 28px;
     padding: 5px 7px;
+}
+
+QTreeWidget#capability_browser::item {
+    min-height: 20px;
+    padding: 2px 5px;
+}
+
+QTreeWidget#capability_browser::branch {
+    width: 14px;
 }
 
 QTreeWidget::item:hover,

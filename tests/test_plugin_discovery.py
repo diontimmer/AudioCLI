@@ -5,7 +5,11 @@ from __future__ import annotations
 import sys
 
 from audiocli.capabilities import get_capability
-from audiocli.plugin_discovery import default_plugin_scan_directories, discover_default_plugins
+from audiocli.plugin_discovery import (
+    default_plugin_scan_directories,
+    default_plugin_scan_directory_specs,
+    discover_default_plugins,
+)
 
 
 def test_default_plugin_scan_directories_are_macos_only_and_rootable(tmp_path, monkeypatch):
@@ -23,7 +27,41 @@ def test_default_plugin_scan_directories_are_macos_only_and_rootable(tmp_path, m
     ]
 
     monkeypatch.setattr(sys, "platform", "linux")
-    assert default_plugin_scan_directories(system_root=system_root, home=home) == []
+    dirs = default_plugin_scan_directories(system_root=system_root, home=home)
+    assert [(d.format, d.scope, d.path) for d in dirs] == [
+        ("VST3", "system", system_root / "usr/lib/vst3"),
+        ("VST3", "system", system_root / "usr/local/lib/vst3"),
+        ("VST3", "user", home / ".vst3"),
+    ]
+
+
+def test_default_plugin_scan_directories_are_cross_platform(tmp_path):
+    home = tmp_path / "home"
+    system_root = tmp_path / "system"
+
+    linux_dirs = default_plugin_scan_directories(
+        platform="linux",
+        system_root=system_root,
+        home=home,
+    )
+    assert [(d.platform, d.format, d.scope, d.path) for d in linux_dirs] == [
+        ("linux", "VST3", "system", system_root / "usr/lib/vst3"),
+        ("linux", "VST3", "system", system_root / "usr/local/lib/vst3"),
+        ("linux", "VST3", "user", home / ".vst3"),
+    ]
+
+    windows_dirs = default_plugin_scan_directories(
+        platform="win32",
+        home=home,
+        environ={
+            "COMMONPROGRAMFILES": str(tmp_path / "Common Files"),
+            "LOCALAPPDATA": str(tmp_path / "LocalAppData"),
+        },
+    )
+    assert [(d.platform, d.format, d.scope, d.path) for d in windows_dirs] == [
+        ("win32", "VST3", "system", tmp_path / "Common Files/VST3"),
+        ("win32", "VST3", "user", tmp_path / "LocalAppData/Programs/Common/VST3"),
+    ]
 
 
 def test_discover_default_plugins_scans_macos_fixed_dirs_without_loading_plugins(
@@ -64,7 +102,8 @@ def test_vst_capability_metadata_exposes_macos_default_scan_directories():
 
     scan_dirs = cap.metadata["default_scan_directories"]
 
-    assert scan_dirs == [
+    assert scan_dirs == default_plugin_scan_directory_specs()
+    assert default_plugin_scan_directory_specs(platform="darwin") == [
         {
             "path": "/Library/Audio/Plug-Ins/VST3",
             "format": "VST3",

@@ -10,6 +10,15 @@ pip install audiocli
 
 Python ≥ 3.10. No `torch`, no `librosa`, no `scipy`. `audiocli --help` returns in under 150 ms.
 
+The optional desktop GUI is being developed as a cross-platform PySide6 app:
+
+```shell
+pip install "audiocli[gui]"
+audiocli-gui
+```
+
+The GUI uses the same capability metadata as the CLI/library, with a compact workspace for browsing tools, building chains, and running batches.
+
 ## One-shot mode
 
 Every command takes one or more `--target` paths (files or directories), an optional `--output`, and `--workers N` for parallelism. Directory targets recurse by default; pass `--no-recursive` to flatten.
@@ -96,6 +105,14 @@ audiocli normalize --target ./stems --peak-db -1 --json
 ```
 
 Exit code is 0 on full success, otherwise the failure count (capped at 255). Pipe straight into your CI script or progress UI.
+
+## Desktop GUI
+
+`audiocli-gui` is the v2 desktop direction for macOS, Windows, and Linux. It is a thin workspace over the same pipeline and capability model: tool metadata drives the browser and parameter panel, saved chains can round-trip through native chain files or `.acli` scripts, and long runs use the library event/cancellation path.
+
+For VST/AU work, the GUI discovers installed plugin bundles from conservative platform defaults without loading native code. Selecting a `VST / AU Plugin` node shows detected plugins, accepts an explicit plugin path, and can open the plugin's native editor in a helper process. Parameters reported by the editor are mirrored back into the node as repeatable `key=value` entries, with a paged, read-only parameter view in the GUI.
+
+The current GUI polish favors dense desktop use: compact controls, icon buttons where practical, and code-font lists/empty states for scan- and capability-heavy surfaces.
 
 ## Use as a library
 

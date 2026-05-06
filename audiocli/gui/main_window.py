@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import QSize, Qt, QThread
-from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence
+from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -45,7 +45,8 @@ from audiocli.capabilities import CapabilityNode
 from audiocli.errors import AudioCLIError
 from audiocli.gui.qt_compat import is_checked_state
 from audiocli.gui.service import InMemoryWorkspaceService
-from audiocli.gui.theme import apply_workspace_theme, repolish
+from audiocli.gui.theme import apply_workspace_theme, repolish, workspace_code_font
+from audiocli.gui.vst_editor_panel import VST_CAPABILITY_ID, VstEditorPanel
 
 USER_ROLE = int(Qt.ItemDataRole.UserRole)
 
@@ -63,6 +64,7 @@ class MainWindow(QMainWindow):
         service: InMemoryWorkspaceService | None = None,
         *,
         test_safe: bool = False,
+        vst_host_controller_factory: Callable[[], Any] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -76,6 +78,15 @@ class MainWindow(QMainWindow):
         self._saved_chain_menu: QMenu | None = None
         self._load_saved_chain_button: QToolButton | None = None
         self._run_dialog: QDialog | None = None
+        self._vst_editor_panel = VstEditorPanel(
+            service=self.service,
+            parent=self,
+            test_safe=test_safe,
+            host_controller_factory=vst_host_controller_factory,
+            is_refreshing=lambda: self._refreshing,
+            refresh_chain_list=self._refresh_chain_list,
+            refresh_parameter_panel=self._refresh_parameter_panel,
+        )
 
         self.setWindowTitle("AudioCLI Workspace")
         self.resize(1280, 760)
@@ -236,7 +247,7 @@ class MainWindow(QMainWindow):
         self.capability_browser.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.capability_browser.setAlternatingRowColors(False)
         self.capability_browser.setAnimated(True)
-        self.capability_browser.setIndentation(20)
+        self.capability_browser.setIndentation(14)
         self.capability_browser.setUniformRowHeights(True)
         self.capability_browser.itemDoubleClicked.connect(self._add_browser_selection)
         layout.addWidget(self.capability_browser, 1)
@@ -531,6 +542,7 @@ class MainWindow(QMainWindow):
         )
         self.capability_browser.clear()
         groups: dict[str, QTreeWidgetItem] = {}
+        tree_font = workspace_code_font(QApplication.instance())
         for capability in self.service.capabilities():
             haystack = f"{capability.display_name} {capability.id} {capability.type}".lower()
             if needle and needle not in haystack:
@@ -540,7 +552,7 @@ class MainWindow(QMainWindow):
             if group_item is None:
                 group_item = QTreeWidgetItem([group_name])
                 group_item.setFirstColumnSpanned(True)
-                group_font = group_item.font(0)
+                group_font = QFont(tree_font)
                 group_font.setBold(True)
                 group_item.setFont(0, group_font)
                 group_item.setForeground(0, QColor("#ece7db"))
@@ -549,6 +561,7 @@ class MainWindow(QMainWindow):
             item = QTreeWidgetItem([capability.display_name])
             item.setData(0, USER_ROLE, capability.id)
             item.setToolTip(0, _compact_tooltip(capability.description))
+            item.setFont(0, tree_font)
             item.setForeground(0, QColor("#ece7db"))
             group_item.addChild(item)
         self.capability_browser.expandAll()
@@ -752,6 +765,12 @@ class MainWindow(QMainWindow):
             hint.setProperty("role", "emptyState")
             hint.setWordWrap(True)
             self.parameter_form.addRow(hint)
+            return
+
+        if capability.id == VST_CAPABILITY_ID:
+            self._parameter_widgets.update(
+                self._vst_editor_panel.render(self.parameter_form, node, capability)
+            )
             return
 
         for parameter in capability.parameters:
@@ -1028,7 +1047,7 @@ class MainWindow(QMainWindow):
             return
         self._update_targets_from_text()
         self.service.set_output_path(self.output_input.text().strip())
-        self.service.set_output_mode(self.output_mode.currentText())
+        self.service.set_output_mode(str(self.output_mode.currentData()))
         self.service.set_worker_count(self.worker_count.value())
         self.service.set_recursive(self.recursive_scan.isChecked())
         self.service.save_settings()
@@ -1159,6 +1178,7 @@ class MainWindow(QMainWindow):
         self.refresh_workspace()
 
     def closeEvent(self, event: Any) -> None:  # noqa: N802 - Qt override name
+        self._vst_editor_panel.stop_host()
         self.service.save_settings()
         super().closeEvent(event)
 

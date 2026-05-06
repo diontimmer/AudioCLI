@@ -1,6 +1,6 @@
 # AudioCLI GUI packaging risk register
 
-Status: living notes for the macOS-first packaging spike.
+Status: living notes for the cross-platform desktop app packaging spike.
 
 ## Risks
 
@@ -81,15 +81,44 @@ hang the packaged app.
 Mitigation:
 - GUI metadata marks VST/AU nodes as external native-code risk.
 - Default plugin discovery never loads plugin code.
-- Future release task: separate plugin host process if stability becomes required.
+- The GUI opens native editors through a helper process and mirrors reported
+  parameters back to the selected node.
+- DSP execution still loads plugin code through the AudioCLI VST operation; keep
+  live-plugin smoke opt-in and plugin-specific.
+- Future release task: evaluate a separate DSP host process if processing
+  stability requires crash isolation.
 
-### Cross-platform follow-up
+### VST editor helper process
+
+Risk: packaged apps can fail to launch `python -m audiocli.gui.vst_host` or lose
+stdout/stderr JSONL communication with the main GUI.
+
+Mitigation:
+- Record whether the helper launches with the bundled Python.
+- Live-plugin smoke should verify editor load, close handling, and mirrored
+  parameter snapshots.
+- Keep helper protocol JSONL-only so failures are visible in packaged logs.
+
+### Compact GUI polish
+
+Risk: packaging can change fonts, spacing, or Qt style defaults enough that the
+compact workspace becomes hard to read.
+
+Mitigation:
+- Manual packaged smoke should check capability browser, empty states, icon
+  buttons, and VST parameter mirrors.
+- Code-font surfaces should remain legible across macOS, Windows, and Linux.
+
+### Cross-platform app packaging
 
 Risk: macOS findings do not automatically transfer to Windows/Linux.
 
 Mitigation:
-- Keep this spike macOS-first.
-- Add native Windows/Linux package spikes later with platform-specific smoke docs.
+- Use `scripts/gui_packaging_smoke.py` as the shared static/native smoke
+  contract on macOS, Windows, and Linux.
+- Keep platform-specific plugin directory defaults in `audiocli.plugin_discovery`.
+- Run static packaging smoke in the existing GitHub Actions OS matrix.
+- Keep native plugin loading out of default smoke paths on every platform.
 
 ## Decision gates
 
@@ -100,4 +129,7 @@ Before installer polish:
 3. PySide6, numpy, pedalboard, and AudioCLI module inclusion are documented.
 4. Bundle sizes are measured.
 5. Plugin scan behavior matches fixed-directory policy.
-6. Maintainer approves packager direction.
+6. VST editor helper can launch and mirror parameters when a live test plugin is
+   provided.
+7. Compact/code-font GUI surfaces are legible in the packaged app.
+8. Maintainer approves packager direction.

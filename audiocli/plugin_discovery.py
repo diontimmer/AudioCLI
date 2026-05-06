@@ -11,11 +11,29 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-_MACOS_PLUGIN_SCAN_DIRECTORY_SPECS: tuple[tuple[str, str, str], ...] = (
-    ("VST3", "system", "/Library/Audio/Plug-Ins/VST3"),
-    ("VST3", "user", "~/Library/Audio/Plug-Ins/VST3"),
-    ("AU", "system", "/Library/Audio/Plug-Ins/Components"),
-    ("AU", "user", "~/Library/Audio/Plug-Ins/Components"),
+_PLUGIN_SCAN_DIRECTORY_SPECS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "darwin": (
+        ("VST3", "system", "/Library/Audio/Plug-Ins/VST3"),
+        ("VST3", "user", "~/Library/Audio/Plug-Ins/VST3"),
+        ("AU", "system", "/Library/Audio/Plug-Ins/Components"),
+        ("AU", "user", "~/Library/Audio/Plug-Ins/Components"),
+    ),
+    "win32": (
+        ("VST3", "system", "%COMMONPROGRAMFILES%/VST3"),
+        ("VST3", "user", "%LOCALAPPDATA%/Programs/Common/VST3"),
+    ),
+    "linux": (
+        ("VST3", "system", "/usr/lib/vst3"),
+        ("VST3", "system", "/usr/local/lib/vst3"),
+        ("VST3", "user", "~/.vst3"),
+    ),
+}
+_PLATFORM_ALIASES = (
+    ("darwin", "darwin"),
+    ("win", "win32"),
+    ("cygwin", "win32"),
+    ("msys", "win32"),
+    ("linux", "linux"),
 )
 _PLUGIN_SUFFIX_BY_FORMAT = {
     "VST3": ".vst3",
@@ -66,9 +84,16 @@ class DiscoveredPlugin:
 def macos_default_plugin_scan_directory_specs() -> list[dict[str, str]]:
     """Return stable macOS plugin search-directory specs without host expansion."""
 
+    return default_plugin_scan_directory_specs(platform="darwin")
+
+
+def default_plugin_scan_directory_specs(platform: str | None = None) -> list[dict[str, str]]:
+    """Return stable plugin search-directory specs without host expansion."""
+
+    platform_name = _normalize_platform(platform or sys.platform)
     return [
-        {"path": path, "format": plugin_format, "scope": scope, "platform": "darwin"}
-        for plugin_format, scope, path in _MACOS_PLUGIN_SCAN_DIRECTORY_SPECS
+        {"path": path, "format": plugin_format, "scope": scope, "platform": platform_name}
+        for plugin_format, scope, path in _PLUGIN_SCAN_DIRECTORY_SPECS.get(platform_name, ())
     ]
 
 
@@ -77,25 +102,33 @@ def default_plugin_scan_directories(
     platform: str | None = None,
     system_root: str | Path = "/",
     home: str | Path | None = None,
+    environ: dict[str, str] | None = None,
     existing_only: bool = False,
 ) -> list[PluginScanDirectory]:
     """Return default plugin scan directories for the current platform.
 
-    Only macOS has fixed VST3/AU directories here. ``system_root`` and ``home``
-    make the paths testable without touching real machine locations.
+    ``system_root``, ``home``, and ``environ`` make platform defaults testable
+    without touching real machine locations.
     """
 
-    platform_name = platform or sys.platform
-    if platform_name != "darwin":
+    platform_name = _normalize_platform(platform or sys.platform)
+    specs = _PLUGIN_SCAN_DIRECTORY_SPECS.get(platform_name, ())
+    if not specs:
         return []
 
     system_root_path = Path(system_root)
     home_path = Path(home).expanduser() if home is not None else Path.home()
+    env = dict(environ or {})
     directories: list[PluginScanDirectory] = []
 
-    for plugin_format, scope, raw_path in _MACOS_PLUGIN_SCAN_DIRECTORY_SPECS:
+    for plugin_format, scope, raw_path in specs:
         path = _resolve_scan_directory(
-            raw_path, scope=scope, system_root=system_root_path, home=home_path
+            raw_path,
+            scope=scope,
+            platform=platform_name,
+            system_root=system_root_path,
+            home=home_path,
+            environ=env,
         )
         if existing_only and not path.is_dir():
             continue
@@ -115,6 +148,7 @@ def discover_default_plugins(
     platform: str | None = None,
     system_root: str | Path = "/",
     home: str | Path | None = None,
+    environ: dict[str, str] | None = None,
 ) -> list[DiscoveredPlugin]:
     """Discover plugin bundles in platform default directories without loading them."""
 
@@ -122,6 +156,7 @@ def discover_default_plugins(
         platform=platform,
         system_root=system_root,
         home=home,
+        environ=environ,
         existing_only=True,
     )
     return discover_plugins(scan_directories)
@@ -161,12 +196,39 @@ def _resolve_scan_directory(
     raw_path: str,
     *,
     scope: str,
+    platform: str,
     system_root: Path,
     home: Path,
+    environ: dict[str, str],
 ) -> Path:
+    if platform == "win32":
+        return _resolve_windows_scan_directory(raw_path, environ=environ, home=home)
     if scope == "user":
         return home / raw_path.removeprefix("~/")
     return system_root / raw_path.removeprefix("/")
+
+
+def _resolve_windows_scan_directory(
+    raw_path: str,
+    *,
+    environ: dict[str, str],
+    home: Path,
+) -> Path:
+    common_program_files = environ.get("COMMONPROGRAMFILES") or r"C:\Program Files\Common Files"
+    local_app_data = environ.get("LOCALAPPDATA") or str(home / "AppData/Local")
+    return Path(
+        raw_path.replace("%COMMONPROGRAMFILES%", common_program_files).replace(
+            "%LOCALAPPDATA%", local_app_data
+        )
+    )
+
+
+def _normalize_platform(platform: str) -> str:
+    value = platform.lower()
+    for prefix, normalized in _PLATFORM_ALIASES:
+        if value.startswith(prefix):
+            return normalized
+    return value
 
 
 def _plugin_name_from_path(path: Path) -> str:
@@ -179,6 +241,7 @@ def _plugin_name_from_path(path: Path) -> str:
 __all__ = [
     "DiscoveredPlugin",
     "PluginScanDirectory",
+    "default_plugin_scan_directory_specs",
     "default_plugin_scan_directories",
     "discover_default_plugins",
     "discover_plugins",

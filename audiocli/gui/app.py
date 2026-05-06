@@ -14,7 +14,12 @@ def _missing_pyside_error() -> RuntimeError:
     )
 
 
-def create_main_window(*, test_safe: bool = False, service=None):  # noqa: ANN001, ANN201
+def create_main_window(
+    *,
+    test_safe: bool = False,
+    service=None,
+    vst_host_controller_factory=None,
+):  # noqa: ANN001, ANN201
     """Create the main workspace window, importing PySide6 lazily."""
 
     try:
@@ -27,14 +32,18 @@ def create_main_window(*, test_safe: bool = False, service=None):  # noqa: ANN00
     if test_safe:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     ensure_qapplication([])
-    return MainWindow(service=service, test_safe=test_safe)
+    return MainWindow(
+        service=service,
+        test_safe=test_safe,
+        vst_host_controller_factory=vst_host_controller_factory,
+    )
 
 
 def _packaged_static_smoke() -> int:
     """Run a packaging smoke check without importing PySide6."""
 
     from audiocli.capabilities import list_capabilities
-    from audiocli.plugin_discovery import macos_default_plugin_scan_directory_specs
+    from audiocli.plugin_discovery import default_plugin_scan_directory_specs
 
     capability_ids = {cap.id for cap in list_capabilities()}
     if "builtin.external_plugin.vst" not in capability_ids:
@@ -47,7 +56,7 @@ def _packaged_static_smoke() -> int:
     ]
     lines.extend(
         f"- {spec['format']} {spec['scope']}: {spec['path']}"
-        for spec in macos_default_plugin_scan_directory_specs()
+        for spec in default_plugin_scan_directory_specs()
     )
     sys.stdout.write("\n".join(lines) + "\n")
     return 0

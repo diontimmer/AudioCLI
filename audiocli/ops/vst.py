@@ -20,6 +20,17 @@ import typer
 from audiocli.buffer import AudioBuffer
 from audiocli.errors import OpError
 from audiocli.registry import op
+from audiocli.vst_params import (
+    apply_param_overrides as _apply_param_overrides,
+)
+from audiocli.vst_params import (
+    coerce_value as _coerce_value,
+)
+from audiocli.vst_params import (
+    parse_param_strings as _parse_param_strings,
+)
+
+__all__ = ["_apply_param_overrides", "_coerce_value", "_parse_param_strings", "vst"]
 
 
 @op(
@@ -84,105 +95,3 @@ def _load_plugin(plugin_path: Path) -> Any:
         return load_plugin(str(plugin_path))
     except Exception as e:
         raise OpError(f"vst: failed to load plugin '{plugin_path}': {e}") from e
-
-
-def _parse_param_strings(raw: list[str]) -> dict[str, str]:
-    """Parse ``["key=value", ...]`` into a dict; raise ``OpError`` on bad shape."""
-    out: dict[str, str] = {}
-    for item in raw:
-        if "=" not in item:
-            raise OpError(f"vst: --param expects 'key=value', got {item!r} (missing '=')")
-        key, _, value = item.partition("=")
-        key = key.strip()
-        if not key:
-            raise OpError(f"vst: --param has empty key: {item!r}")
-        out[key] = value
-    return out
-
-
-def _apply_param_overrides(plugin: Any, overrides: dict[str, str]) -> None:
-    """Coerce each ``key=value`` against the plugin's parameter metadata.
-
-    Raises ``OpError`` for unknown names or values that don't fit the
-    parameter's declared type.
-    """
-    if not overrides:
-        return
-
-    plugin_params = getattr(plugin, "parameters", {}) or {}
-    valid_keys = sorted(plugin_params.keys())
-
-    for raw_key, raw_value in overrides.items():
-        key = _resolve_param_key(raw_key, plugin_params)
-        if key is None:
-            valid_hint = ", ".join(valid_keys) if valid_keys else "(no parameters reported)"
-            raise OpError(f"vst: unknown parameter {raw_key!r}; valid keys: {valid_hint}")
-
-        meta = plugin_params[key]
-        coerced = _coerce_value(key, raw_value, meta)
-        try:
-            setattr(plugin, key, coerced)
-        except Exception as e:
-            raise OpError(f"vst: failed to set parameter {key!r}={raw_value!r}: {e}") from e
-
-
-def _resolve_param_key(raw_key: str, plugin_params: dict[str, Any]) -> str | None:
-    """Match a CLI key against the plugin's identifier dict, case-insensitively."""
-    if raw_key in plugin_params:
-        return raw_key
-    lowered = raw_key.lower().replace(" ", "_")
-    for k in plugin_params:
-        if k.lower() == lowered:
-            return k
-    return None
-
-
-def _coerce_value(key: str, raw: str, meta: Any) -> Any:
-    """Coerce ``raw`` to match ``meta``'s declared type.
-
-    Pedalboard's parameter objects expose ``type`` (a Python type like
-    ``float`` / ``bool`` / ``int`` / ``str``) and, for choice parameters,
-    a ``valid_values`` / ``valid_strings`` listing.
-    """
-    declared = getattr(meta, "type", None)
-    valid_values = getattr(meta, "valid_values", None) or getattr(meta, "valid_strings", None)
-
-    if declared is bool:
-        return _coerce_bool(key, raw)
-    if declared is int:
-        return _coerce_int(key, raw)
-    if declared is float:
-        return _coerce_float(key, raw)
-    if valid_values:
-        if raw in valid_values:
-            return raw
-        # case-insensitive fallback
-        for v in valid_values:
-            if isinstance(v, str) and v.lower() == raw.lower():
-                return v
-        raise OpError(f"vst: parameter {key!r} expected one of {list(valid_values)!r}, got {raw!r}")
-    # Default: pass through as string. Many pedalboard params accept str.
-    return raw
-
-
-def _coerce_bool(key: str, raw: str) -> bool:
-    low = raw.strip().lower()
-    if low in {"1", "true", "yes", "on"}:
-        return True
-    if low in {"0", "false", "no", "off"}:
-        return False
-    raise OpError(f"vst: parameter {key!r} expects a bool, got {raw!r}")
-
-
-def _coerce_int(key: str, raw: str) -> int:
-    try:
-        return int(raw)
-    except ValueError as e:
-        raise OpError(f"vst: parameter {key!r} expects an int, got {raw!r}") from e
-
-
-def _coerce_float(key: str, raw: str) -> float:
-    try:
-        return float(raw)
-    except ValueError as e:
-        raise OpError(f"vst: parameter {key!r} expects a float, got {raw!r}") from e

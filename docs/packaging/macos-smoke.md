@@ -4,9 +4,10 @@ Status: preparation-only until run on native macOS.
 
 ## Scope
 
-This spike is macOS-first. Windows and Linux bundles stay follow-up work. Signing,
-notarization, hardened runtime, entitlements, DMG polish, and installer polish are
-deferred until after a packager is chosen.
+This spike is macOS-first and now sits on top of the shared cross-platform smoke
+contract in `scripts/gui_packaging_smoke.py`. Signing, notarization, hardened
+runtime, entitlements, DMG polish, and installer polish are deferred until after
+a packager is chosen.
 
 Packager is intentionally undecided. Use this document to collect evidence before
 choosing PyInstaller, Briefcase, Nuitka, or another route.
@@ -79,8 +80,12 @@ Manual checks:
 2. Capability browser populates.
 3. `VST / AU Plugin` capability appears.
 4. Fixed plugin directories are visible in logs/smoke output or equivalent UI metadata.
-5. Simple Gain chain can process a small audio file.
-6. Save/load chain works after app relaunch.
+5. Capability browser and VST empty/mirrored parameter states use the compact
+   code-font GUI styling.
+6. Simple Gain chain can process a small audio file.
+7. Save/load chain works after app relaunch.
+8. If `AUDIOCLI_TEST_VST_PATH` is set, the VST editor opens in the helper
+   process and mirrored parameters appear in the selected node.
 
 ## Candidate evidence template
 
@@ -102,6 +107,8 @@ For each packager tested, record:
 - AudioCLI module inclusion notes:
 - Plugin directory scan result:
 - Live plugin result, if tested:
+- VST editor helper/parameter mirror result, if tested:
+- Compact/code-font GUI render notes:
 - Signing/notarization blockers:
 - Recommendation:
 

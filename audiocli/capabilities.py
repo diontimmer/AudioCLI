@@ -10,125 +10,37 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from audiocli.capability_models import (
+    CapabilityParameter,
+    IOShape,
+    SafetySemantics,
+    ValidationError,
+    ValidationResult,
+)
+from audiocli.capability_models import (
+    json_safe as _json_safe,
+)
+from audiocli.capability_validation import (
+    coerce_bool as _coerce_bool,
+)
+from audiocli.capability_validation import (
+    is_missing as _is_missing,
+)
+from audiocli.capability_validation import (
+    received as _received,
+)
+from audiocli.capability_validation import (
+    validate_parameters,
+)
 from audiocli.io import SUPPORTED_FORMATS
-from audiocli.plugin_discovery import macos_default_plugin_scan_directory_specs
+from audiocli.plugin_discovery import default_plugin_scan_directory_specs
 from audiocli.registry import OpInfo, ParamInfo, list_ops
-
-
-@dataclass(frozen=True)
-class IOShape:
-    """Declared input or output contract for a capability node."""
-
-    kind: str
-    media_type: str
-    cardinality: str
-    description: str = ""
-
-    def to_view_model(self) -> dict[str, Any]:
-        return {
-            "kind": self.kind,
-            "media_type": self.media_type,
-            "cardinality": self.cardinality,
-            "description": self.description,
-        }
-
-
-@dataclass(frozen=True)
-class SafetySemantics:
-    """Safety flags shown by UI before a node is added or executed."""
-
-    classification: str
-    destructive: bool = False
-    requires_confirmation: bool = False
-    writes_files: bool = False
-    external: bool = False
-    notes: list[str] = field(default_factory=list)
-
-    def to_view_model(self) -> dict[str, Any]:
-        return {
-            "classification": self.classification,
-            "destructive": self.destructive,
-            "requires_confirmation": self.requires_confirmation,
-            "writes_files": self.writes_files,
-            "external": self.external,
-            "notes": list(self.notes),
-        }
-
-
-@dataclass(frozen=True)
-class CapabilityParameter:
-    """UI-facing metadata for one capability parameter."""
-
-    name: str
-    type: str
-    display_name: str
-    description: str = ""
-    required: bool = False
-    default: Any = None
-    control_hint: str = "text"
-    choices: list[Any] = field(default_factory=list)
-    normalizer: str = ""
-    min_value: float | int | None = None
-    min_exclusive: bool = False
-    repeatable: bool = False
-
-    def to_view_model(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "type": self.type,
-            "display_name": self.display_name,
-            "description": self.description,
-            "required": self.required,
-            "default": _json_safe(self.default),
-            "control_hint": self.control_hint,
-            "choices": _json_safe(self.choices),
-            "min_value": _json_safe(self.min_value),
-            "min_exclusive": self.min_exclusive,
-            "repeatable": self.repeatable,
-        }
-
-
-@dataclass(frozen=True)
-class ValidationError:
-    """Structured pre-execution validation error for a node parameter."""
-
-    parameter: str
-    code: str
-    message: str
-    expected_type: str = ""
-    received: str = ""
-
-    def to_view_model(self) -> dict[str, Any]:
-        return {
-            "parameter": self.parameter,
-            "code": self.code,
-            "message": self.message,
-            "expected_type": self.expected_type,
-            "received": self.received,
-        }
-
-
-@dataclass(frozen=True)
-class ValidationResult:
-    """Validation outcome and JSON-safe coerced values."""
-
-    valid: bool
-    errors: list[ValidationError] = field(default_factory=list)
-    values: dict[str, Any] = field(default_factory=dict)
-
-    def to_view_model(self) -> dict[str, Any]:
-        return {
-            "valid": self.valid,
-            "errors": [e.to_view_model() for e in self.errors],
-            "values": _json_safe(self.values),
-        }
 
 
 @dataclass(frozen=True)
@@ -399,113 +311,6 @@ def validate_capability_params(
         include_plugins=include_plugins,
         chain_dir=chain_dir,
     ).validate_params(params)
-
-
-def validate_parameters(
-    parameters: list[CapabilityParameter],
-    params: dict[str, Any],
-) -> ValidationResult:
-    """Validate and coerce raw parameters against capability parameter metadata."""
-
-    errors: list[ValidationError] = []
-    values: dict[str, Any] = {}
-    by_name = {p.name: p for p in parameters}
-
-    for raw_name in params:
-        if raw_name not in by_name:
-            errors.append(
-                ValidationError(
-                    parameter=raw_name,
-                    code="unknown_parameter",
-                    message=f"Unknown parameter '{raw_name}'.",
-                    received=_received(params[raw_name]),
-                )
-            )
-
-    for parameter in parameters:
-        if parameter.name not in params:
-            if parameter.required:
-                errors.append(
-                    ValidationError(
-                        parameter=parameter.name,
-                        code="missing_required",
-                        message=f"Parameter '{parameter.name}' is required.",
-                        expected_type=parameter.type,
-                    )
-                )
-            else:
-                values[parameter.name] = _json_safe(parameter.default)
-            continue
-
-        raw_value = params[parameter.name]
-        if _is_missing(raw_value):
-            if parameter.required:
-                errors.append(
-                    ValidationError(
-                        parameter=parameter.name,
-                        code="missing_required",
-                        message=f"Parameter '{parameter.name}' is required.",
-                        expected_type=parameter.type,
-                        received=_received(raw_value),
-                    )
-                )
-            else:
-                values[parameter.name] = _json_safe(parameter.default)
-            continue
-
-        ok, coerced, error_message = _coerce(raw_value, parameter.type)
-        if not ok:
-            errors.append(
-                ValidationError(
-                    parameter=parameter.name,
-                    code="invalid_type",
-                    message=(
-                        error_message or f"Parameter '{parameter.name}' expects {parameter.type}."
-                    ),
-                    expected_type=parameter.type,
-                    received=_received(raw_value),
-                )
-            )
-            continue
-
-        coerced = _normalize_value(coerced, parameter.normalizer)
-        if parameter.min_value is not None and isinstance(coerced, int | float):
-            below_minimum = (
-                coerced <= parameter.min_value
-                if parameter.min_exclusive
-                else coerced < parameter.min_value
-            )
-            if below_minimum:
-                errors.append(
-                    ValidationError(
-                        parameter=parameter.name,
-                        code="below_minimum",
-                        message=(
-                            f"Parameter '{parameter.name}' must be "
-                            f"{'>' if parameter.min_exclusive else '>='} "
-                            f"{parameter.min_value}."
-                        ),
-                        expected_type=parameter.type,
-                        received=_received(raw_value),
-                    )
-                )
-                continue
-        if parameter.choices and coerced not in parameter.choices:
-            expected = _format_choices(parameter.choices)
-            errors.append(
-                ValidationError(
-                    parameter=parameter.name,
-                    code="invalid_choice",
-                    message=f"Parameter '{parameter.name}' must be one of: {expected}.",
-                    expected_type=parameter.type,
-                    received=_received(raw_value),
-                )
-            )
-            continue
-
-        values[parameter.name] = _json_safe(coerced)
-
-    return ValidationResult(valid=not errors, errors=errors, values=values)
 
 
 def _validate_vst_external_plugin_params(params: dict[str, Any]) -> ValidationResult:
@@ -1362,7 +1167,7 @@ def _vst_external_plugin_capability() -> CapabilityNode:
             "plugin_host": "pedalboard.load_plugin",
             "operation_name": "vst",
             "plugin_formats": ["VST3", "AU"],
-            "default_scan_directories": macos_default_plugin_scan_directory_specs(),
+            "default_scan_directories": default_plugin_scan_directory_specs(),
             "parameter_serialization": "repeatable key=value strings",
             "platform_notes": [
                 "VST3 plugins require a compatible plugin build for this operating system and CPU architecture.",
@@ -1656,108 +1461,3 @@ def _control_hint(type_name: str, choices: list[Any] | None = None) -> str:
     if type_name == "Path":
         return "path"
     return "text"
-
-
-def _normalize_value(value: Any, normalizer: str) -> Any:
-    if normalizer == "format" and isinstance(value, str):
-        return value.lower().lstrip(".")
-    return value
-
-
-def _format_choices(choices: list[Any]) -> str:
-    return ", ".join(str(choice) for choice in choices)
-
-
-def _coerce(value: Any, type_name: str) -> tuple[bool, Any, str]:
-    if type_name == "int":
-        return _coerce_int(value)
-    if type_name == "float":
-        return _coerce_float(value)
-    if type_name == "bool":
-        return _coerce_bool(value)
-    if type_name == "str":
-        return True, str(value), ""
-    if type_name == "Path":
-        if isinstance(value, Path):
-            return True, str(value), ""
-        if isinstance(value, str):
-            return True, value, ""
-        return False, None, f"Expected path string, got {type(value).__name__}."
-    # Unknown or richer registry types are left to the operation itself for now.
-    return True, _json_safe(value), ""
-
-
-def _coerce_int(value: Any) -> tuple[bool, int | None, str]:
-    if isinstance(value, bool):
-        return False, None, f"Expected int, got {type(value).__name__}."
-    if isinstance(value, int):
-        return True, value, ""
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            return False, None, f"Expected finite int, got {value!r}."
-        if value.is_integer():
-            return True, int(value), ""
-    if isinstance(value, str):
-        try:
-            return True, int(value.strip()), ""
-        except ValueError:
-            return False, None, f"Expected int, got {value!r}."
-    return False, None, f"Expected int, got {type(value).__name__}."
-
-
-def _coerce_float(value: Any) -> tuple[bool, float | None, str]:
-    if isinstance(value, bool):
-        return False, None, f"Expected float, got {type(value).__name__}."
-    if isinstance(value, int | float):
-        coerced = float(value)
-        if not math.isfinite(coerced):
-            return False, None, f"Expected finite float, got {value!r}."
-        return True, coerced, ""
-    if isinstance(value, str):
-        try:
-            coerced = float(value.strip())
-        except ValueError:
-            return False, None, f"Expected float, got {value!r}."
-        if not math.isfinite(coerced):
-            return False, None, f"Expected finite float, got {value!r}."
-        return True, coerced, ""
-    return False, None, f"Expected float, got {type(value).__name__}."
-
-
-def _coerce_bool(value: Any) -> tuple[bool, bool | None, str]:
-    if isinstance(value, bool):
-        return True, value, ""
-    if isinstance(value, int) and value in {0, 1}:
-        return True, bool(value), ""
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True, True, ""
-        if normalized in {"0", "false", "no", "off"}:
-            return True, False, ""
-        return False, None, f"Expected bool, got {value!r}."
-    return False, None, f"Expected bool, got {type(value).__name__}."
-
-
-def _is_missing(value: Any) -> bool:
-    return value is None or (isinstance(value, str) and value == "")
-
-
-def _received(value: Any) -> str:
-    return f"{type(value).__name__}: {value!r}"
-
-
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, tuple):
-        return [_json_safe(v) for v in value]
-    if isinstance(value, list):
-        return [_json_safe(v) for v in value]
-    if isinstance(value, dict):
-        return {str(k): _json_safe(v) for k, v in value.items()}
-    if isinstance(value, float):
-        return value if math.isfinite(value) else str(value)
-    if value is None or isinstance(value, str | int | bool):
-        return value
-    return repr(value)
