@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+    Hardened-runtime entitlements for the AudioCLI bundle.
+
+    These are the minimum entitlements required for the app to (a) load
+    third-party VST/AU plugins via pedalboard at runtime, (b) run Qt's WebEngine
+    pieces and JIT'd Python bytecode, and (c) be successfully notarized.
+    -->
+
+    <!-- Qt and pedalboard's plugin host JIT machine code at runtime. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Required for pedalboard to dlopen VST3 / AU plugins from the system
+         audio plug-in directories, since those plugins are signed by their
+         own vendors (not by us). -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Some Qt platform plugins consult DYLD_* environment variables. -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+
+    <!-- Optional: enable if/when the app ever does live audio monitoring. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+</dict>
+</plist>

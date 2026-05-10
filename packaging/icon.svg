@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>AudioCLI</title>
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#282a36"/>
+      <stop offset="100%" stop-color="#1a1b22"/>
+    </linearGradient>
+    <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#cdb0fb"/>
+      <stop offset="100%" stop-color="#a672f0"/>
+    </linearGradient>
+    <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff9bd3"/>
+      <stop offset="100%" stop-color="#e85bb1"/>
+    </linearGradient>
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
+      <feOffset dx="0" dy="6" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.35"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="228" ry="228" fill="url(#bgGrad)"/>
+  <rect x="3" y="3" width="1018" height="1018" rx="225" ry="225"
+        fill="none" stroke="#6272a4" stroke-width="2" opacity="0.45"/>
+
+  <g filter="url(#softShadow)">
+    <path d="M 220 328 L 372 512 L 220 696"
+          stroke="url(#purpleGrad)" stroke-width="80"
+          stroke-linecap="round" stroke-linejoin="round"
+          fill="none"/>
+
+    <rect x="438" y="472" width="44" height="80"  rx="14" fill="url(#purpleGrad)"/>
+    <rect x="510" y="412" width="44" height="200" rx="14" fill="url(#purpleGrad)"/>
+    <rect x="582" y="322" width="44" height="380" rx="14" fill="url(#purpleGrad)"/>
+    <rect x="654" y="252" width="44" height="520" rx="14" fill="url(#pinkGrad)"/>
+    <rect x="726" y="322" width="44" height="380" rx="14" fill="url(#purpleGrad)"/>
+    <rect x="798" y="412" width="44" height="200" rx="14" fill="url(#purpleGrad)"/>
+  </g>
+</svg>
