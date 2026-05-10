@@ -156,10 +156,23 @@ QToolBar#main_action_toolbar::separator {
 }
 
 QToolBar#main_action_toolbar QToolButton {
+    background: transparent;
+    border: 1px solid transparent;
     border-radius: 4px;
     margin: 0;
     min-height: 18px;
     padding: 2px 7px;
+    font-weight: 500;
+}
+
+QToolBar#main_action_toolbar QToolButton:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.06);
+}
+
+QToolBar#main_action_toolbar QToolButton:pressed {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: transparent;
 }
 
 QToolButton,
