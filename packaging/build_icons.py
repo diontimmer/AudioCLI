@@ -29,9 +29,12 @@ def _render_with_rsvg(size: int) -> bytes | None:
         subprocess.run(
             [
                 "rsvg-convert",
-                "-w", str(size),
-                "-h", str(size),
-                "-o", str(tmp_path),
+                "-w",
+                str(size),
+                "-h",
+                str(size),
+                "-o",
+                str(tmp_path),
                 str(SVG),
             ],
             check=True,

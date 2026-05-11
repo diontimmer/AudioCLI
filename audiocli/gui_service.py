@@ -561,9 +561,7 @@ def preview_chain_output_paths(
     return [
         ChainOutputPreview(
             source_path=target,
-            output_path=_preview_output_path(
-                target, policy.output, final_step, scan_roots=roots
-            ),
+            output_path=_preview_output_path(target, policy.output, final_step, scan_roots=roots),
         )
         for target in target_paths
     ]
@@ -1343,9 +1341,7 @@ def _simulate_chunk_step_before_remove_silent(
         scan_roots=scan_roots,
     )
     preview_dest_dir = (
-        _chunk_destination_dir(
-            source, step, step_index, True, policy, None, scan_roots=scan_roots
-        )
+        _chunk_destination_dir(source, step, step_index, True, policy, None, scan_roots=scan_roots)
         if is_final
         else physical_dest_dir
     )
@@ -2297,7 +2293,12 @@ def _execute_chain_for_file(
                 elif _is_chunk_step(step):
                     output_paths = []
                     dest_dir = _chunk_destination_dir(
-                        source, step, step_index, is_final, policy, temp_dir,
+                        source,
+                        step,
+                        step_index,
+                        is_final,
+                        policy,
+                        temp_dir,
                         scan_roots=scan_roots,
                     )
                     for path in input_paths:
