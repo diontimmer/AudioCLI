@@ -1,0 +1,112 @@
+site_name: AudioCLI
+site_description: Scriptable, batch-capable, cross-platform audio power-tool. CLI, library, and desktop workspace built on Spotify's pedalboard.
+site_url: https://diontimmer.github.io/AudioCLI/
+site_author: Dion Timmer
+
+repo_url: https://github.com/diontimmer/AudioCLI
+repo_name: diontimmer/AudioCLI
+edit_uri: edit/main/docs/
+
+copyright: Copyright &copy; 2026 Dion Timmer — MIT licensed
+
+# Internal agent guidance lives under docs/agents/ but is not part of the
+# public site.
+exclude_docs: |
+  agents/
+
+theme:
+  name: material
+  logo: assets/icon.svg
+  favicon: assets/icon.png
+  font:
+    text: Inter
+    code: JetBrains Mono
+  palette:
+    - scheme: dracula
+      primary: custom
+      accent: custom
+  features:
+    - announce.dismiss
+    - content.action.edit
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+    - content.tooltips
+    - navigation.expand
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+
+extra_css:
+  - stylesheets/dracula.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/diontimmer/AudioCLI
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.snippets:
+      base_path:
+        - .
+        - docs
+      check_paths: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - CLI:
+      - cli.md
+      - "Ops reference": ops-reference.md
+  - Desktop GUI: gui.md
+  - Library API: library.md
+  - Plugins & hooks: plugins.md
+  - Packaging:
+      - packaging/index.md
+      - "macOS build pipeline": packaging/macos-build.md
+      - "Cross-platform app notes": packaging/cross-platform-app.md
+      - "macOS smoke harness": packaging/macos-smoke.md
+      - "Risk register": packaging/packaging-risk-register.md
+  - Changelog: changelog.md
