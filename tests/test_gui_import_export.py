@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-import shlex
 from pathlib import Path
 
 import numpy as np
 import pytest
 from typer.testing import CliRunner
 
+from audiocli._shell import quote_arg
 from audiocli.buffer import AudioBuffer
 from audiocli.capabilities import get_capability, list_capabilities
 from audiocli.chains import CapabilityChain
@@ -111,8 +111,8 @@ def test_simple_gui_chain_exports_to_acli_with_executable_context(tmp_path):
     # tmp path in single quotes, on POSIX paths without metacharacters pass
     # through unchanged.
     expected = (
-        f"gain --target {shlex.quote(str(src))} --db 3.5 "
-        f"--output {shlex.quote(str(out))} --workers 1 --no-recursive"
+        f"gain --target {quote_arg(str(src))} --db 3.5 "
+        f"--output {quote_arg(str(out))} --workers 1 --no-recursive"
     )
     assert result.kind == "acli"
     assert result.lines == [expected]
@@ -250,8 +250,8 @@ def test_workspace_service_exposes_import_export_methods(tmp_path):
     service.set_recursive(False)
     acli_result = service.export_current_chain_acli(tmp_path / "service.acli")
     expected = (
-        f"gain --target {shlex.quote(str(src))} --db 1.0 "
-        f"--output {shlex.quote(str(out))} --no-recursive"
+        f"gain --target {quote_arg(str(src))} --db 1.0 "
+        f"--output {quote_arg(str(out))} --no-recursive"
     )
     assert acli_result.path.read_text() == expected + "\n"
 

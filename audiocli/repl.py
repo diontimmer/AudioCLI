@@ -25,7 +25,6 @@ All heavy imports — ``click_repl`` and ``prompt_toolkit`` — happen inside
 
 from __future__ import annotations
 
-import shlex
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -33,6 +32,7 @@ from typing import Annotated
 import click
 import typer
 
+from audiocli._shell import split_args
 from audiocli.errors import ConfigError
 from audiocli.settings import Settings, load_settings, save_settings
 
@@ -57,16 +57,17 @@ def _default_history_path() -> Path:
 def _split_chain(line: str) -> list[str]:
     """Split a REPL line on `` ; `` outside quoted strings.
 
-    Uses ``shlex`` in POSIX mode with ``;`` as a recognised separator so
-    we get quote-aware tokenisation for free, then re-joins each segment
-    back into a string ``click-repl`` can dispatch.
+    Tokenisation goes through :mod:`audiocli._shell` so the rules match
+    ``shlex.split`` on POSIX and ``shlex.shlex(posix=False)`` on Windows
+    (preserving backslashes in paths).
     """
-    lex = shlex.shlex(line, posix=True)
-    lex.whitespace_split = True
-    lex.commenters = ""
+    from audiocli._shell import quote_arg, shlex_lexer, unquote_token  # noqa: PLC0415
+
+    lex = shlex_lexer(line)
     segments: list[list[str]] = [[]]
     try:
-        for tok in lex:
+        for raw_tok in lex:
+            tok = unquote_token(raw_tok)
             if tok == ";":
                 segments.append([])
             else:
@@ -79,7 +80,7 @@ def _split_chain(line: str) -> list[str]:
     for seg in segments:
         if not seg:
             continue
-        out.append(" ".join(shlex.quote(t) for t in seg))
+        out.append(" ".join(quote_arg(t) for t in seg))
     return out
 
 
@@ -277,7 +278,7 @@ def run_shell(
             if not segment:
                 continue
             try:
-                args = shlex.split(segment)
+                args = split_args(segment)
             except ValueError as e:
                 typer.echo(f"parse error: {e}", err=True)
                 continue

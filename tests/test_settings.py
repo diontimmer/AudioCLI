@@ -133,7 +133,10 @@ def test_paths_per_platform_linux(monkeypatch: pytest.MonkeyPatch) -> None:
         platformdirs, "user_config_dir", lambda app: f"/home/u/.config/{app}", raising=True
     )
     p = settings_path()
-    assert str(p) == "/home/u/.config/audiocli/settings.json"
+    # Use as_posix() so the assertion is portable: on Windows, Path()
+    # rewrites forward slashes to backslashes, which would make a
+    # str() comparison platform-specific.
+    assert p.as_posix() == "/home/u/.config/audiocli/settings.json"
 
 
 def test_paths_per_platform_macos(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -147,7 +150,7 @@ def test_paths_per_platform_macos(monkeypatch: pytest.MonkeyPatch) -> None:
         raising=True,
     )
     p = settings_path()
-    assert str(p) == "/Users/u/Library/Application Support/audiocli/settings.json"
+    assert p.as_posix() == "/Users/u/Library/Application Support/audiocli/settings.json"
 
 
 def test_paths_per_platform_windows(monkeypatch: pytest.MonkeyPatch) -> None:

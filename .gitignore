@@ -156,3 +156,4 @@ hooks/
 AudioCLI/h.acli_history
 AudioCLI/last_settings.json.claude/
 site/
+.DS_Store

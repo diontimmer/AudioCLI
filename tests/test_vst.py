@@ -218,7 +218,10 @@ def test_vst_expands_tilde_plugin_path_before_loading(tmp_path, monkeypatch):
     home.mkdir()
     plugin_path = home / "FakePlug.vst3"
     plugin_path.write_bytes(b"\x00")
+    # Path.expanduser() consults HOME on POSIX and USERPROFILE on Windows; set
+    # both so the test is platform-portable.
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
 
     with patch("pedalboard.load_plugin", return_value=_FakePlugin()) as load_plugin:
         vst(_make_buf(), plugin_path="~/FakePlug.vst3", params=[])
@@ -421,7 +424,9 @@ def test_vst_external_plugin_validation_serializes_repeatable_key_values(tmp_pat
 def test_vst_external_plugin_validation_stores_expanded_tilde_path(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
+    # See test_vst_expands_tilde_plugin_path_before_loading for the rationale.
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
 
     result = validate_capability_params(
         "builtin.external_plugin.vst",

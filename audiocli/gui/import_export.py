@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import math
-import shlex
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from audiocli._shell import quote_arg
 from audiocli.capabilities import CapabilityNode, get_capability
 from audiocli.chains import (
     CapabilityChain,
@@ -461,9 +461,9 @@ def _node_to_acli_line(
     recursive: bool,
     workers: int | None,
 ) -> str:
-    parts = [shlex.quote(capability.operation_name)]
+    parts = [quote_arg(capability.operation_name)]
     for target in targets:
-        parts.extend(["--target", shlex.quote(str(target))])
+        parts.extend(["--target", quote_arg(str(target))])
     known_order = [parameter.name for parameter in capability.parameters]
     ordered_names = [name for name in known_order if name in params]
     ordered_names.extend(sorted(name for name in params if name not in set(known_order)))
@@ -490,9 +490,9 @@ def _node_to_acli_line(
                     )
                 ]
             )
-        parts.extend([option, shlex.quote(str(value))])
+        parts.extend([option, quote_arg(str(value))])
     if output is not None:
-        parts.extend(["--output", shlex.quote(str(output))])
+        parts.extend(["--output", quote_arg(str(output))])
     if workers is not None and workers > 0:
         parts.extend(["--workers", str(int(workers))])
     parts.append("--recursive" if recursive else "--no-recursive")

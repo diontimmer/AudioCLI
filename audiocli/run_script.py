@@ -12,11 +12,11 @@ the rendering / exit strategy.
 
 from __future__ import annotations
 
-import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from audiocli._shell import split_args
 from audiocli.errors import AudioCLIError
 
 if TYPE_CHECKING:
@@ -120,7 +120,7 @@ def run_script(
 
     for lineno, line in parse_script(path):
         try:
-            args = shlex.split(line)
+            args = split_args(line)
         except ValueError as e:
             report.results.append(
                 LineResult(lineno=lineno, command=line, ok=False, error=f"parse error: {e}"),

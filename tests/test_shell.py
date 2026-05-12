@@ -94,8 +94,12 @@ def test_split_chain_multi():
 
 def test_split_chain_quoted_semicolon_survives():
     # A `;` inside a quoted string must not split.
+    from audiocli._shell import quote_arg
+
     out = _split_chain('gain --db 6 --target "a;b.wav"')
-    assert out == ["gain --db 6 --target 'a;b.wav'"]
+    # quote_arg picks platform-appropriate quoting: single quotes on POSIX,
+    # double quotes with escapes on Windows.
+    assert out == [f"gain --db 6 --target {quote_arg('a;b.wav')}"]
 
 
 def test_split_chain_empty():
