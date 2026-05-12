@@ -105,6 +105,7 @@ nav:
   - Plugins & hooks: plugins.md
   - Packaging:
       - packaging/index.md
+      - "Releasing to PyPI": packaging/release.md
       - "macOS build pipeline": packaging/macos-build.md
       - "Cross-platform app notes": packaging/cross-platform-app.md
       - "macOS smoke harness": packaging/macos-smoke.md
