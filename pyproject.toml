@@ -3,7 +3,11 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "audiocli"
+# PyPI distribution name. The Python import path remains `audiocli` and the
+# shell commands stay `audiocli` / `audiocli-gui`. Only the dist name is
+# hyphenated, because the unhyphenated `audiocli` was registered on PyPI in
+# March 2026 by an unrelated audio-bench-measurement project.
+name = "audio-cli"
 version = "2.0.0"
 description = "Pedalboard-powered batch audio power-tool for the command line."
 readme = "README.md"

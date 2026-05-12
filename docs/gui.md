@@ -3,7 +3,7 @@
 `audiocli-gui` is the cross-platform desktop workspace for AudioCLI — a PySide6 app that drives the same pipeline and capability model as the CLI. It runs on macOS, Windows, and Linux.
 
 ```shell
-pip install "audiocli[gui]"
+pip install "audio-cli[gui]"
 audiocli-gui
 ```
 

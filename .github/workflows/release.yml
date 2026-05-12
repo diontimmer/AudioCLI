@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/audiocli
+      url: https://pypi.org/p/audio-cli
     permissions:
       id-token: write    # OIDC token for PyPI trusted publisher
     steps:
