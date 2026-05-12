@@ -115,7 +115,11 @@ def test_cli_default_mode_runs_without_json(tmp_path):
     assert "done:" in result.stderr
 
 
-def test_cli_json_flag_appears_in_help():
+def test_cli_json_flag_appears_in_help(monkeypatch):
+    # CI runners don't allocate a TTY, so without COLUMNS set Rich auto-renders
+    # the Typer help into a ~20-column panel and truncates every flag name to
+    # `…`. Force a wide enough terminal that flag names render in full.
+    monkeypatch.setenv("COLUMNS", "120")
     runner = CliRunner()
     result = runner.invoke(app, ["gain", "--help"])
     assert result.exit_code == 0

@@ -199,17 +199,21 @@ def test_shell_quit_quits_cleanly(tmp_path):
 
 
 def test_shell_set_persists_across_sessions(tmp_path):
-    """`set workers 4` in session 1 is reflected by `show` in session 2."""
+    """`set workers N` in session 1 is reflected by `show` in session 2."""
     history = tmp_path / "history"
     settings = tmp_path / "settings.json"
 
-    first = _run_shell("set workers 4\nexit\n", history, settings=settings)
+    # Pick a value that's guaranteed not to equal `min(8, os.cpu_count())`,
+    # otherwise save_settings is a no-op (new == default) and no file is
+    # written. Ubuntu CI runners have exactly 4 cores, so `set workers 4`
+    # used to silently leave settings.json missing on that platform.
+    first = _run_shell("set workers 99\nexit\n", history, settings=settings)
     assert first.returncode == 0, first.stderr
     assert settings.exists()
 
     second = _run_shell("show\nexit\n", history, settings=settings)
     assert second.returncode == 0, second.stderr
-    assert "workers:    4" in second.stdout, second.stdout
+    assert "workers:    99" in second.stdout, second.stdout
 
 
 def test_shell_set_targets_persists(tmp_path):

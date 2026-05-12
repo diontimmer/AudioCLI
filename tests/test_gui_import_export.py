@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 
 import numpy as np
@@ -105,7 +106,14 @@ def test_simple_gui_chain_exports_to_acli_with_executable_context(tmp_path):
         workers=1,
     )
 
-    expected = f"gain --target {src} --db 3.5 --output {out} --workers 1 --no-recursive"
+    # The export code shell-quotes every path so .acli scripts round-trip
+    # cleanly through shells; on Windows that wraps the backslash-laden
+    # tmp path in single quotes, on POSIX paths without metacharacters pass
+    # through unchanged.
+    expected = (
+        f"gain --target {shlex.quote(str(src))} --db 3.5 "
+        f"--output {shlex.quote(str(out))} --workers 1 --no-recursive"
+    )
     assert result.kind == "acli"
     assert result.lines == [expected]
     assert result.path.read_text() == expected + "\n"
@@ -241,7 +249,10 @@ def test_workspace_service_exposes_import_export_methods(tmp_path):
     service.set_output_path(out)
     service.set_recursive(False)
     acli_result = service.export_current_chain_acli(tmp_path / "service.acli")
-    expected = f"gain --target {src} --db 1.0 --output {out} --no-recursive"
+    expected = (
+        f"gain --target {shlex.quote(str(src))} --db 1.0 "
+        f"--output {shlex.quote(str(out))} --no-recursive"
+    )
     assert acli_result.path.read_text() == expected + "\n"
 
     imported_script = service.import_acli_script_file(acli_result.path)
