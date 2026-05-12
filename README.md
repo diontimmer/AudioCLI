@@ -5,19 +5,20 @@ A scriptable, batch-capable, cross-platform audio power-tool that runs DAW-quali
 ## Install
 
 ```shell
-pip install audio-cli
+pip install audiocli-tools
 ```
 
-> **Note on the name:** the PyPI distribution is `audio-cli` (hyphenated). The
-> unhyphenated `audiocli` on PyPI is an unrelated audio-measurement project. If
-> you `pip install audiocli` you'll get the wrong tool.
+> **Note on the name:** the PyPI distribution is `audiocli-tools`. The bare
+> `audiocli` on PyPI is an unrelated audio-measurement project — `pip install
+> audiocli` will get you the wrong tool. Once installed, everything in your
+> shell and your code stays `audiocli` / `audiocli-gui` / `from audiocli import ...`.
 
 Python ≥ 3.10. No `torch`, no `librosa`, no `scipy`. `audiocli --help` returns in under 150 ms.
 
 The optional desktop GUI is being developed as a cross-platform PySide6 app:
 
 ```shell
-pip install "audio-cli[gui]"
+pip install "audiocli-tools[gui]"
 audiocli-gui
 ```
 

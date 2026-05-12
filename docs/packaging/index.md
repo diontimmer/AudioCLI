@@ -2,7 +2,7 @@
 
 AudioCLI ships in three forms:
 
-- **PyPI package** (`pip install audio-cli`) — the canonical distribution for developers and CI. Note the hyphen — `audiocli` on PyPI is an unrelated project.
+- **PyPI package** (`pip install audiocli-tools`) — the canonical distribution for developers and CI. The bare `audiocli` on PyPI is an unrelated project.
 - **Desktop bundles** — signed, notarized `.app` (macOS), `.exe` (Windows), and onedir (Linux) builds that include the GUI and CLI together.
 - **Custom integrations** — embedded in other tools via the [library API](../library.md).
 

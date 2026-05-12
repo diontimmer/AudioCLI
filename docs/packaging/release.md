@@ -2,7 +2,7 @@
 
 AudioCLI uses a **tag-driven release workflow** with [PyPI Trusted Publishers (OIDC)](https://docs.pypi.org/trusted-publishers/) — no API tokens stored in the repo, no secrets to rotate. The day-to-day release flow is two commands.
 
-The PyPI distribution name is **`audio-cli`** (hyphenated). The unhyphenated `audiocli` on PyPI is an unrelated project we don't own.
+The PyPI distribution name is **`audiocli-tools`** (hyphenated). The unhyphenated `audiocli` on PyPI is an unrelated project we don't own.
 
 ## One-time setup
 
@@ -10,13 +10,13 @@ You only do this once per project. After it's configured, every future release i
 
 ### 1. Add a Trusted Publisher on PyPI
 
-Because `audio-cli` doesn't yet exist on PyPI, you'll use the **pending publisher** flow: PyPI lets you pre-configure a trusted publisher for a project name that doesn't exist yet, and the first time the workflow uploads under that name, the project is created.
+Because `audiocli-tools` doesn't yet exist on PyPI, you'll use the **pending publisher** flow: PyPI lets you pre-configure a trusted publisher for a project name that doesn't exist yet, and the first time the workflow uploads under that name, the project is created.
 
 Go to [pypi.org/manage/account/publishing/](https://pypi.org/manage/account/publishing/) → "Add a new pending publisher", and fill in:
 
 | Field | Value |
 |---|---|
-| PyPI project name | `audio-cli` |
+| PyPI project name | `audiocli-tools` |
 | Owner | `diontimmer` |
 | Repository name | `AudioCLI` |
 | Workflow filename | `release.yml` |
@@ -24,7 +24,7 @@ Go to [pypi.org/manage/account/publishing/](https://pypi.org/manage/account/publ
 
 Save.
 
-This tells PyPI: "the first time GitHub Actions on `diontimmer/AudioCLI` runs the `release.yml` workflow inside the `pypi` environment, create the project `audio-cli` and let it publish." On every subsequent release the same trust relationship continues without further setup.
+This tells PyPI: "the first time GitHub Actions on `diontimmer/AudioCLI` runs the `release.yml` workflow inside the `pypi` environment, create the project `audiocli-tools` and let it publish." On every subsequent release the same trust relationship continues without further setup.
 
 ### 2. Create the `pypi` environment on the repo
 
@@ -79,7 +79,7 @@ git tag v2.1.0a1
 git push origin v2.1.0a1
 ```
 
-`pip install audio-cli` skips pre-releases by default. Users who want it run `pip install --pre audio-cli`.
+`pip install audiocli-tools` skips pre-releases by default. Users who want it run `pip install --pre audiocli-tools`.
 
 ## Troubleshooting
 

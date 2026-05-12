@@ -44,20 +44,22 @@ hide:
 ## Install
 
 ```shell
-pip install audio-cli
+pip install audiocli-tools
 ```
 
 !!! note "PyPI distribution name"
 
-    The package is published as **`audio-cli`** (hyphenated). The unhyphenated
-    `audiocli` on PyPI is an unrelated audio-measurement project, not this one.
+    The package is published as **`audiocli-tools`**. The bare `audiocli`
+    on PyPI is an unrelated audio-measurement project, not this one. Once
+    installed, everything stays `audiocli` — the shell command, the import
+    path (`from audiocli import ...`), and `audiocli-gui`.
 
 Python ≥ 3.10. No `torch`, no `librosa`, no `scipy`. `audiocli --help` returns in under 150 ms.
 
 The optional desktop GUI:
 
 ```shell
-pip install "audio-cli[gui]"
+pip install "audiocli-tools[gui]"
 audiocli-gui
 ```
 
