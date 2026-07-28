@@ -12,6 +12,7 @@ Use a hook for experiments. Promote to a plugin once you want the op to be a per
 ```python title="my_transform.py"
 from audiocli import AudioBuffer
 
+
 def transform(buf: AudioBuffer, custom_key: str = "") -> AudioBuffer:
     return AudioBuffer(data=buf.data * 0.5, sr=buf.sr, subtype=buf.subtype)
 ```
@@ -32,6 +33,7 @@ A plugin is a regular pip-installable package that registers ops via the `audioc
 
 ```python title="my_plugin/ops.py"
 from audiocli import op, AudioBuffer
+
 
 @op(name="reverse", help="Reverse the audio along the time axis.")
 def reverse(buf: AudioBuffer) -> AudioBuffer:
@@ -63,14 +65,14 @@ Type-annotate the function — AudioCLI builds the CLI/GUI parameter UI from the
 from typing import Annotated
 from audiocli import op, AudioBuffer
 
+
 @op(name="vinyl", help="Apply lo-fi vinyl coloration.")
 def vinyl(
     buf: AudioBuffer,
     dust_level: Annotated[float, "How much surface noise to add"] = 0.1,
     wow_hz: Annotated[float, "Wow modulation rate in Hz"] = 0.5,
     flutter_amount: Annotated[float, "Flutter depth, 0-1"] = 0.3,
-) -> AudioBuffer:
-    ...
+) -> AudioBuffer: ...
 ```
 
 Each annotated parameter becomes a `--dust-level`, `--wow-hz`, `--flutter-amount` CLI flag (kebab-cased) and a labeled GUI field. The annotation string becomes the help text and tooltip. Defaults make the param optional; un-defaulted params become required flags.
@@ -82,8 +84,7 @@ Supported parameter types: `int`, `float`, `str`, `bool`, `pathlib.Path`, and `t
 The base contract is a pure filter:
 
 ```python
-def my_op(buf: AudioBuffer, **params) -> AudioBuffer:
-    ...
+def my_op(buf: AudioBuffer, **params) -> AudioBuffer: ...
 ```
 
 In AudioCLI 2.0, **only filter-shape ops can be plugins.** First-party special-case ops — `info` (analysis), `chunk` (multi-output), `remove-silent` (side-effect), `vst` (external host) — bypass the plugin contract because their shapes can't fit cleanly into `(buf) -> buf`. The plugin contract may broaden in 2.1+; until then, multi-output and analysis plugins aren't supported.

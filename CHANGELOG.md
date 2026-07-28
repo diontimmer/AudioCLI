@@ -2,6 +2,19 @@
 
 All notable changes to AudioCLI are documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] — 2026-07-28
+
+### Added
+
+- Ordered dry-run previews for chains containing multiple destructive file-filter nodes.
+- One combined confirmation that covers the exact union of files a multi-filter chain will delete, move, or rename.
+- An importable `Cleanup and Group Files` chain that deletes configured render tags and silent files before moving MID group files into `GROUPS`.
+
+### Changed
+
+- Destructive-filter previews now simulate earlier delete, move, rename, copy, and skip actions without mutating source or destination files.
+- The workspace GUI can execute multiple destructive file filters in one chain instead of rejecting chains with more than one guarded node.
+
 ## [2.0.0] — 2026-04-30
 
 A complete, breaking rewrite. AudioCLI is repositioned from "ML data-prep tool" to "scriptable, batch-capable, cross-platform audio power-tool that runs DAW-quality effects from the command line." The engine is now Spotify's `pedalboard`; the v1 ML-flavored stack is gone.
@@ -95,4 +108,5 @@ AudioCLIError
 - 313 tests covering every op (round-trip + correctness + negative), the pipeline (50-files-with-3-corrupt isolation, cancellation mid-batch, no-thread-leak), the CLI (every command's `--help`, `--json` JSON parseability, exit codes), the REPL (`;`-chaining, history, `set` persistence), the plugin loader (entry-point discovery, conflict resolution, malformed signature → `PluginError`), and the library API (`list_ops()` shape, `run_per_file` callable surface).
 - CI matrix: `{ubuntu, macos, windows}-latest × {3.10, 3.11, 3.12}` running `ruff check`, `ruff format --check`, `pytest --cov`.
 
+[2.1.0]: https://github.com/diontimmer/AudioCLI/releases/tag/v2.1.0
 [2.0.0]: https://github.com/diontimmer/AudioCLI/releases/tag/v2.0.0

@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 # similarity check rejects any separator-only variation (`audio-cli`,
 # `audio_cli`, etc.) as too similar to that existing name.
 name = "audiocli-tools"
-version = "2.0.0"
+version = "2.1.0"
 description = "Pedalboard-powered batch audio power-tool for the command line."
 readme = "README.md"
 requires-python = ">=3.10"

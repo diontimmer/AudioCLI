@@ -32,10 +32,11 @@ print(report.ok_count, "ok,", report.failed_count, "failed")
 @dataclass(frozen=True)
 class ParamInfo:
     name: str
-    type: type            # int, float, str, bool, Path, …
+    type: type  # int, float, str, bool, Path, …
     default: Any
     required: bool
     help: str
+
 
 @dataclass(frozen=True)
 class OpInfo:
@@ -72,6 +73,7 @@ from audiocli import run_per_file, get_op
 
 cancel = threading.Event()
 
+
 def run_in_background():
     run_per_file(
         ["./big-folder"],
@@ -80,6 +82,7 @@ def run_in_background():
         workers=8,
         cancel_token=cancel,
     )
+
 
 worker = threading.Thread(target=run_in_background)
 worker.start()
@@ -96,11 +99,11 @@ In-flight files complete cleanly. Pending submissions skip. The returned report 
 `on_event` receives dicts with a `type` key:
 
 ```python
-{"type": "start",     "total": 12, "workers": 8}
-{"type": "progress",  "done": 5, "total": 12, "current": "./stems/foo.wav"}
+{"type": "start", "total": 12, "workers": 8}
+{"type": "progress", "done": 5, "total": 12, "current": "./stems/foo.wav"}
 {"type": "file_done", "path": "./stems/foo.wav", "ok": True, "error": None}
 {"type": "file_done", "path": "./stems/broken.wav", "ok": False, "error": "Could not decode"}
-{"type": "done",      "ok": 11, "failed": 1, "duration_s": 4.2}
+{"type": "done", "ok": 11, "failed": 1, "duration_s": 4.2}
 ```
 
 Same shape as the CLI's `--json` output, so any tooling you build for one works for both.
@@ -127,9 +130,9 @@ The op contract uses a tiny `AudioBuffer` dataclass:
 ```python
 @dataclass
 class AudioBuffer:
-    data: np.ndarray   # shape (channels, samples), float32 or float64
-    sr: int            # sample rate in Hz
-    subtype: str       # libsndfile subtype, e.g. "PCM_24", "FLOAT"
+    data: np.ndarray  # shape (channels, samples), float32 or float64
+    sr: int  # sample rate in Hz
+    subtype: str  # libsndfile subtype, e.g. "PCM_24", "FLOAT"
     # …plus optional format hints
 ```
 
@@ -137,6 +140,7 @@ Filter ops take a buffer and return a buffer:
 
 ```python
 from audiocli import AudioBuffer
+
 
 def reverse(buf: AudioBuffer) -> AudioBuffer:
     return AudioBuffer(data=buf.data[:, ::-1], sr=buf.sr, subtype=buf.subtype)

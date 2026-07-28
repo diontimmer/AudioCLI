@@ -29,8 +29,12 @@ import sys
 from pathlib import Path
 from typing import Annotated
 
-import click
 import typer
+
+try:
+    from typer import _click as click
+except ImportError:  # Typer versions before the vendored Click backend.
+    import click
 
 from audiocli._shell import split_args
 from audiocli.errors import ConfigError

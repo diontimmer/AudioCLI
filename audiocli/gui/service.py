@@ -32,8 +32,7 @@ from audiocli.gui_service import (
     ChainOutputPolicy,
     execute_file_chain,
     prepare_file_chain_execution,
-    preview_name_regex_filter,
-    preview_remove_silent,
+    preview_destructive_filters,
 )
 
 
@@ -825,30 +824,19 @@ def _preview_destructive_filter_impact(
     kinds = _destructive_filter_kinds(request)
     if not kinds:
         return None
-    if len(kinds) > 1:
-        raise AudioCLIError(
-            "GUI destructive preview supports exactly one destructive filter node per chain"
-        )
-    if kinds[0] == "remove_silent":
-        preview = preview_remove_silent(
-            request.chain,
-            request.targets,
-            recursive=request.recursive,
-        )
-        filter_kind = "remove_silent"
-    else:
-        preview = preview_name_regex_filter(
-            request.chain,
-            request.targets,
-            recursive=request.recursive,
-        )
-        filter_kind = "name_regex"
+    preview = preview_destructive_filters(
+        request.chain,
+        request.targets,
+        recursive=request.recursive,
+    )
     affected_paths = [str(path) for path in preview.affected_paths]
+    filter_kind = kinds[0] if len(kinds) == 1 else "multiple"
     return {
         "affected_paths": affected_paths,
         "affected_file_count": len(affected_paths),
         "affected_directory_count": _target_directory_count(request.targets),
         "destructive_filter": filter_kind,
+        "destructive_filters": kinds,
         "preview": preview.to_view_model(),
     }
 

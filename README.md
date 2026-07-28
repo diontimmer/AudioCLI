@@ -156,6 +156,7 @@ A plugin is a regular pip-installable package that registers ops via Python entr
 # my_plugin/ops.py
 from audiocli import op, AudioBuffer
 
+
 @op(name="reverse", help="Reverse the audio along the time axis.")
 def reverse(buf: AudioBuffer) -> AudioBuffer:
     return AudioBuffer(data=buf.data[:, ::-1], sr=buf.sr, subtype=buf.subtype)
@@ -192,6 +193,7 @@ audiocli hook ./my_transform.py --target ./stems --custom-key value
 ```python
 # my_transform.py
 from audiocli import AudioBuffer
+
 
 def transform(buf: AudioBuffer, custom_key: str = "") -> AudioBuffer:
     return AudioBuffer(data=buf.data * 0.5, sr=buf.sr, subtype=buf.subtype)

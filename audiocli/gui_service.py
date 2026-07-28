@@ -57,6 +57,7 @@ from audiocli.file_chains.models import (
     ChainStepArtifact,
     ChainStepFileSet,
     DestructiveConfirmation,
+    DestructiveFilterPreview,
     FileChainExecutionPreparation,
     FileChainExecutionRun,
     NameRegexFileAssessment,
@@ -310,24 +311,11 @@ def execute_file_chain(
                 "name-regex/remove-silent destructive filtering requires explicit confirmation; "
                 "run a destructive dry-run preview first and confirm affected paths"
             )
-        if any(
-            _file_filter_requires_confirmation(step) and _is_remove_silent_step(step)
-            for step in preparation.plan.steps
-        ):
-            remove_preview = _preview_remove_silent_for_confirmation(preparation)
-            _verify_remove_silent_affected_paths(
-                remove_preview.affected_paths,
-                destructive_confirmation,
-            )
-        if any(
-            _file_filter_requires_confirmation(step) and _is_name_regex_filter_step(step)
-            for step in preparation.plan.steps
-        ):
-            name_preview = _preview_name_regex_for_confirmation(preparation)
-            _verify_name_regex_affected_paths(
-                name_preview.affected_paths,
-                destructive_confirmation,
-            )
+        destructive_preview = _preview_destructive_filters_for_confirmation(preparation)
+        _verify_destructive_filter_affected_paths(
+            destructive_preview,
+            destructive_confirmation,
+        )
 
     report = ChainRunReport()
     start = time.perf_counter()
@@ -518,6 +506,32 @@ def dry_run_name_regex_filter_chain(*args: Any, **kwargs: Any) -> NameRegexFilte
     """Alias for :func:`preview_name_regex_filter`."""
 
     return preview_name_regex_filter(*args, **kwargs)
+
+
+def preview_destructive_filters(
+    chain: CapabilityChain,
+    targets: Iterable[str | Path],
+    *,
+    recursive: bool = True,
+    extensions: Iterable[str] | None = None,
+    include_hidden: bool = False,
+    follow_symlinks: bool = False,
+    cancel_token: Event | None = None,
+) -> DestructiveFilterPreview:
+    """Dry-run all destructive file-filter nodes in execution order."""
+
+    preparation = prepare_file_chain_execution(
+        chain,
+        targets,
+        recursive=recursive,
+        extensions=extensions,
+        include_hidden=include_hidden,
+        follow_symlinks=follow_symlinks,
+    )
+    return _preview_destructive_filters_for_confirmation(
+        preparation,
+        cancel_token=cancel_token,
+    )
 
 
 def preview_chain_output_paths(
@@ -1042,16 +1056,38 @@ def _single_name_regex_filter_step_with_index(
     return step, index
 
 
-def _preview_remove_silent_for_confirmation(
+def _preview_destructive_filters_for_confirmation(
     preparation: FileChainExecutionPreparation,
-) -> RemoveSilentPreview:
-    return _preview_remove_silent_at_chain_node(preparation)
-
-
-def _preview_name_regex_for_confirmation(
-    preparation: FileChainExecutionPreparation,
-) -> NameRegexFilterPreview:
-    return _preview_name_regex_at_chain_node(preparation)
+    *,
+    cancel_token: Event | None = None,
+) -> DestructiveFilterPreview:
+    preview = DestructiveFilterPreview(
+        chain_id=preparation.chain_id,
+        chain_name=preparation.chain_name,
+        targets=list(preparation.targets),
+    )
+    for step_index, step in enumerate(preparation.plan.steps, start=1):
+        if not _file_filter_requires_confirmation(step):
+            continue
+        if _is_remove_silent_step(step):
+            preview.filters.append(
+                _preview_remove_silent_at_step(
+                    preparation,
+                    step,
+                    step_index,
+                    cancel_token=cancel_token,
+                )
+            )
+        elif _is_name_regex_filter_step(step):
+            preview.filters.append(
+                _preview_name_regex_at_step(
+                    preparation,
+                    step,
+                    step_index,
+                    cancel_token=cancel_token,
+                )
+            )
+    return preview
 
 
 def _preview_remove_silent_at_chain_node(
@@ -1060,6 +1096,21 @@ def _preview_remove_silent_at_chain_node(
     cancel_token: Event | None = None,
 ) -> RemoveSilentPreview:
     step, remove_step_index = _single_remove_silent_step_with_index(preparation.plan.steps)
+    return _preview_remove_silent_at_step(
+        preparation,
+        step,
+        remove_step_index,
+        cancel_token=cancel_token,
+    )
+
+
+def _preview_remove_silent_at_step(
+    preparation: FileChainExecutionPreparation,
+    step: ChainExecutionStep,
+    step_index: int,
+    *,
+    cancel_token: Event | None = None,
+) -> RemoveSilentPreview:
     threshold_db, metric = _remove_silent_params(step)
     target_paths = [Path(target) for target in preparation.targets]
     preview = RemoveSilentPreview(
@@ -1089,7 +1140,7 @@ def _preview_remove_silent_at_chain_node(
                 source,
                 preparation.plan,
                 preparation.output_policy,
-                remove_step_index,
+                step_index,
                 temp_dir,
                 cancel_token=cancel_token,
                 scan_roots=preparation.scan_roots,
@@ -1139,6 +1190,21 @@ def _preview_name_regex_at_chain_node(
     cancel_token: Event | None = None,
 ) -> NameRegexFilterPreview:
     step, filter_step_index = _single_name_regex_filter_step_with_index(preparation.plan.steps)
+    return _preview_name_regex_at_step(
+        preparation,
+        step,
+        filter_step_index,
+        cancel_token=cancel_token,
+    )
+
+
+def _preview_name_regex_at_step(
+    preparation: FileChainExecutionPreparation,
+    step: ChainExecutionStep,
+    step_index: int,
+    *,
+    cancel_token: Event | None = None,
+) -> NameRegexFilterPreview:
     pattern, case_sensitive, matcher = _name_regex_params(step)
     target_paths = [Path(target) for target in preparation.targets]
     preview = NameRegexFilterPreview(
@@ -1168,7 +1234,7 @@ def _preview_name_regex_at_chain_node(
                 source,
                 preparation.plan,
                 preparation.output_policy,
-                filter_step_index,
+                step_index,
                 temp_dir,
                 cancel_token=cancel_token,
                 scan_roots=preparation.scan_roots,
@@ -1222,10 +1288,10 @@ def _simulate_file_set_before_remove_silent(
     cancel_token: Event | None = None,
     scan_roots: Iterable[Path] = (),
 ) -> list[tuple[Path, Path]]:
-    """Run enabled steps before remove-silent against managed dry-run files.
+    """Run enabled steps before a file filter against managed dry-run files.
 
     The first path in each tuple is the physical file to inspect. The second is
-    the stable path a real execution would present to remove-silent and bind in
+    the stable path a real execution would present to the filter and bind in
     destructive confirmation.
     """
 
@@ -1267,10 +1333,13 @@ def _simulate_file_set_before_remove_silent(
             collection_expanded = True
             continue
 
-        if _is_destructive_filter_step(step):
-            raise AudioCLIError(
-                "dry-run preview supports exactly one destructive filter node per chain"
+        if _is_remove_silent_step(step) or _is_name_regex_filter_step(step):
+            current_paths = _simulate_prior_file_filter_step(
+                input_paths,
+                step,
+                scan_roots=scan_roots,
             )
+            continue
 
         output_paths: list[tuple[Path, Path]] = []
         op = _load_hook_op(step) if _is_hook_step(step) else get_op(step.operation_name)
@@ -1317,6 +1386,62 @@ def _simulate_file_set_before_remove_silent(
         current_paths = output_paths
 
     return current_paths
+
+
+def _simulate_prior_file_filter_step(
+    input_paths: list[tuple[Path, Path]],
+    step: ChainExecutionStep,
+    *,
+    scan_roots: Iterable[Path] = (),
+) -> list[tuple[Path, Path]]:
+    """Project a prior file filter without mutating source or destination files."""
+
+    output_paths: list[tuple[Path, Path]] = []
+    matcher: re.Pattern[str] | None = None
+    threshold_db = -60.0
+    metric = "rms"
+    if _is_name_regex_filter_step(step):
+        _pattern, _case_sensitive, matcher = _name_regex_params(step)
+    else:
+        threshold_db, metric = _remove_silent_params(step)
+
+    for physical_path, preview_path in input_paths:
+        if matcher is not None:
+            matched = bool(matcher.search(preview_path.name))
+        else:
+            matched = is_silent(
+                load(physical_path),
+                threshold_db=threshold_db,
+                metric=metric,
+            )
+        if not matched:
+            output_paths.append((physical_path, preview_path))
+            continue
+
+        action = _file_filter_action(step)
+        if action in {"skip", "delete"}:
+            continue
+        if action == "copy":
+            output_paths.append((physical_path, preview_path))
+            continue
+        if action == "move":
+            destination = _planned_copy_or_move_destination(
+                preview_path,
+                step,
+                scan_roots=scan_roots,
+            )
+            output_paths.append((physical_path, destination))
+            continue
+        if action == "rename":
+            destination = _planned_rename_destination(
+                preview_path,
+                step,
+                scan_roots=scan_roots,
+            )
+            output_paths.append((physical_path, destination))
+            continue
+        raise AudioCLIError(f"unsupported file filter action: {action!r}")
+    return output_paths
 
 
 def _simulate_chunk_step_before_remove_silent(
@@ -1417,6 +1542,36 @@ def _verify_name_regex_affected_paths(
             + "; ".join(parts)
             + ")"
         )
+
+
+def _verify_destructive_filter_affected_paths(
+    preview: DestructiveFilterPreview,
+    confirmation: DestructiveConfirmation | Mapping[str, Any] | None,
+) -> None:
+    if len(preview.filters) == 1:
+        single = preview.filters[0]
+        if isinstance(single, RemoveSilentPreview):
+            _verify_remove_silent_affected_paths(single.affected_paths, confirmation)
+        else:
+            _verify_name_regex_affected_paths(single.affected_paths, confirmation)
+        return
+
+    affected = set(_confirmation_affected_paths(confirmation))
+    candidate_set = {Path(path).resolve() for path in preview.affected_paths}
+    missing = sorted(candidate_set - affected, key=str)
+    extra = sorted(affected - candidate_set, key=str)
+    if not missing and not extra:
+        return
+
+    parts: list[str] = []
+    if missing:
+        parts.append("missing candidates: " + ", ".join(str(path) for path in missing))
+    if extra:
+        parts.append("unexpected paths: " + ", ".join(str(path) for path in extra))
+    raise AudioCLIError(
+        "destructive-filter confirmation affected_paths do not match combined dry-run "
+        "candidates (" + "; ".join(parts) + ")"
+    )
 
 
 def _file_filter_event_metadata(
@@ -1564,6 +1719,18 @@ def _copy_or_move_destination(
     *,
     scan_roots: Iterable[Path] = (),
 ) -> Path:
+    destination = _planned_copy_or_move_destination(path, step, scan_roots=scan_roots)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    _reject_existing_action_destination(destination)
+    return destination
+
+
+def _planned_copy_or_move_destination(
+    path: Path,
+    step: ChainExecutionStep,
+    *,
+    scan_roots: Iterable[Path] = (),
+) -> Path:
     raw_dir = str(step.params.get("destination_dir") or "").strip()
     if not raw_dir:
         raise AudioCLIError(f"destination_dir is required for action {_file_filter_action(step)!r}")
@@ -1572,13 +1739,21 @@ def _copy_or_move_destination(
     except (KeyError, ValueError, IndexError) as exc:
         raise AudioCLIError(f"invalid placeholder in destination_dir: {exc}") from exc
     destination_dir = Path(expanded).expanduser()
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    destination = destination_dir / path.name
+    return destination_dir / path.name
+
+
+def _rename_destination(
+    path: Path,
+    step: ChainExecutionStep,
+    *,
+    scan_roots: Iterable[Path] = (),
+) -> Path:
+    destination = _planned_rename_destination(path, step, scan_roots=scan_roots)
     _reject_existing_action_destination(destination)
     return destination
 
 
-def _rename_destination(
+def _planned_rename_destination(
     path: Path,
     step: ChainExecutionStep,
     *,
@@ -1615,9 +1790,7 @@ def _rename_destination(
         raise AudioCLIError(f"invalid rename template: {exc}") from exc
     if not name or Path(name).name != name:
         raise AudioCLIError("rename_template must produce a simple file name")
-    destination = path.with_name(name)
-    _reject_existing_action_destination(destination)
-    return destination
+    return path.with_name(name)
 
 
 def _reject_existing_action_destination(destination: Path) -> None:
@@ -2950,6 +3123,7 @@ __all__ = [
     "ChainRunReport",
     "ChainStepArtifact",
     "ChainStepFileSet",
+    "DestructiveFilterPreview",
     "DestructiveConfirmation",
     "FileChainExecutionPreparation",
     "FileChainExecutionRun",
@@ -2968,6 +3142,8 @@ __all__ = [
     "prepare_file_chain_execution",
     "prepare_one_node_filter_chain",
     "preview_chain_output_paths",
+    "preview_destructive_filters",
+    "preview_name_regex_filter",
     "preview_output_paths",
     "preview_remove_silent",
 ]

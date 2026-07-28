@@ -79,6 +79,7 @@ For one-off transforms without packaging a plugin:
 ```python title="my_transform.py"
 from audiocli import AudioBuffer
 
+
 def transform(buf: AudioBuffer, custom_key: str = "") -> AudioBuffer:
     return AudioBuffer(data=buf.data * 0.5, sr=buf.sr, subtype=buf.subtype)
 ```
