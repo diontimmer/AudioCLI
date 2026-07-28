@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "kind": "audiocli.saved_chain",
+  "id": "chain-cleanup-and-group-files",
+  "name": "Cleanup and Group Files",
+  "description": "Deletes tagged and silent files, then moves MID group files into a GROUPS folder.",
+  "notes": "Filename matching is case-insensitive. GROUPS is created automatically beside the source files. One confirmation covers all deletes and moves.",
+  "output_policy": {},
+  "nodes": [
+    {
+      "id": "delete-tagged-files",
+      "node_type": "capability",
+      "capability_id": "builtin.file_filter.name_regex",
+      "enabled": true,
+      "params": {
+        "pattern": "_(?:Current|SC|Master|SUB FLWR|HP-MIDS|HIPASS FX)(?=$|[_. -])",
+        "case_sensitive": false,
+        "action": "delete",
+        "destination_dir": "",
+        "rename_template": "{stem}{suffix}"
+      },
+      "notes": "Delete files containing _Current, _SC, _Master, _SUB FLWR, _HP-MIDS, or _HIPASS FX.",
+      "output_policy": {}
+    },
+    {
+      "id": "delete-silent-files",
+      "node_type": "capability",
+      "capability_id": "builtin.file_filter.remove_silent",
+      "enabled": true,
+      "params": {
+        "threshold_db": -60.0,
+        "metric": "rms",
+        "action": "delete",
+        "destination_dir": "",
+        "rename_template": "{stem}{suffix}"
+      },
+      "notes": "Delete remaining files whose RMS level is below -60 dBFS.",
+      "output_policy": {}
+    },
+    {
+      "id": "move-mid-groups",
+      "node_type": "capability",
+      "capability_id": "builtin.file_filter.name_regex",
+      "enabled": true,
+      "params": {
+        "pattern": "_(?:MIDS|SUB x MIDS)(?=$|[_. -])",
+        "case_sensitive": false,
+        "action": "move",
+        "destination_dir": "{source}\\GROUPS",
+        "rename_template": "{stem}{suffix}"
+      },
+      "notes": "Move remaining files containing _MIDS or _SUB x MIDS into GROUPS.",
+      "output_policy": {}
+    }
+  ]
+}

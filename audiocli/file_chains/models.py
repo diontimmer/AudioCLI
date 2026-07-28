@@ -367,6 +367,56 @@ class NameRegexFilterPreview:
         }
 
 
+@dataclass
+class DestructiveFilterPreview:
+    """Ordered dry-run summary for every destructive file-filter node in a chain."""
+
+    chain_id: str
+    chain_name: str
+    targets: list[Path] = field(default_factory=list)
+    filters: list[RemoveSilentPreview | NameRegexFilterPreview] = field(default_factory=list)
+
+    @property
+    def affected_paths(self) -> list[Path]:
+        seen: set[Path] = set()
+        affected: list[Path] = []
+        for preview in self.filters:
+            for path in preview.affected_paths:
+                resolved = Path(path).resolve()
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                affected.append(Path(path))
+        return affected
+
+    @property
+    def affected_count(self) -> int:
+        return len(self.affected_paths)
+
+    def to_view_model(self) -> dict[str, Any]:
+        filter_views: list[dict[str, Any]] = []
+        for preview in self.filters:
+            kind = "remove_silent" if isinstance(preview, RemoveSilentPreview) else "name_regex"
+            filter_views.append(
+                {
+                    "kind": kind,
+                    "node_id": preview.step.node_id,
+                    "affected_paths": [str(path) for path in preview.affected_paths],
+                    "affected_count": len(preview.affected_paths),
+                    "preview": preview.to_view_model(),
+                }
+            )
+        return {
+            "chain_id": self.chain_id,
+            "chain_name": self.chain_name,
+            "target_count": len(self.targets),
+            "targets": [str(path) for path in self.targets],
+            "affected_paths": [str(path) for path in self.affected_paths],
+            "affected_count": self.affected_count,
+            "filters": filter_views,
+        }
+
+
 @dataclass(frozen=True)
 class ChainOutputPolicy:
     """Normalized output policy for file-based chain execution."""
@@ -773,6 +823,7 @@ __all__ = [
     "ChainScriptResult",
     "ChainStepArtifact",
     "ChainStepFileSet",
+    "DestructiveFilterPreview",
     "DestructiveConfirmation",
     "FileChainExecutionPreparation",
     "FileChainExecutionRun",

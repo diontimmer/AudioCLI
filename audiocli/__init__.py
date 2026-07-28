@@ -101,6 +101,7 @@ from audiocli.gui_service import (
     ChainRunReport,
     ChainStepArtifact,
     DestructiveConfirmation,
+    DestructiveFilterPreview,
     FileChainExecutionPreparation,
     FileChainExecutionRun,
     OneNodeFilterChainPreparation,
@@ -113,7 +114,10 @@ from audiocli.gui_service import (
     prepare_file_chain_execution,
     prepare_one_node_filter_chain,
     preview_chain_output_paths,
+    preview_destructive_filters,
+    preview_name_regex_filter,
     preview_output_paths,
+    preview_remove_silent,
 )
 from audiocli.pipeline import (
     JobReport,
@@ -144,6 +148,7 @@ __all__ = [
     "ChainOutputPreview",
     "ChainRunReport",
     "ChainStepArtifact",
+    "DestructiveFilterPreview",
     "ChainExecutionPlan",
     "ChainExecutionPreparation",
     "ChainExecutionReport",
@@ -193,9 +198,12 @@ __all__ = [
     "prepare_file_chain_execution",
     "prepare_one_node_filter_chain",
     "preview_chain_output_paths",
+    "preview_destructive_filters",
+    "preview_name_regex_filter",
     "preview_output_paths",
+    "preview_remove_silent",
     "run_one",
     "run_per_file",
     "validate_capability_params",
 ]
-__version__ = "2.0.0"
+__version__ = "2.1.0"
